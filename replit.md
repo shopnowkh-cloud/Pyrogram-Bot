@@ -16,6 +16,15 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
+## Telegram Bot (Python + Pyrogram)
+
+- **Location**: `telegram-bot/bot.py`
+- **Library**: Pyrogram 2.0.106 (MTProto, not Bot API) + TgCrypto
+- **Runtime**: Python 3.11
+- **Workflow**: "Telegram Bot" — runs `cd telegram-bot && python bot.py`
+- **Secrets**: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_BOT_TOKEN`
+- **Commands**: `/start`, `/help`, `/echo <text>`, plain text echo
+
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
