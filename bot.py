@@ -1,8 +1,13 @@
 import os
-import asyncio
-import signal
+import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = Client(
     "simple_bot",
@@ -12,28 +17,17 @@ app = Client(
 )
 
 
-@app.on_message(filters.text)
-async def handle(_, m: Message):
+@app.on_message(filters.command("start"))
+async def cmd_start(_, m: Message):
+    logger.info(f"[/start] from user_id={m.from_user.id}")
+    await m.reply("សួស្ដី! 👋 Bot កំពុង​ដំណើរការ​ជាធម្មតា។")
+
+
+@app.on_message(filters.text & ~filters.command(["start"]))
+async def handle_text(_, m: Message):
+    logger.info(f"[text] from user_id={m.from_user.id} text={m.text!r}")
     await m.reply("សួស្តី")
 
 
-async def main():
-    await app.start()
-    print("Bot is running...")
-
-    stop_event = asyncio.Event()
-
-    def _stop(sig, frame):
-        print(f"Received signal {sig}, shutting down...")
-        stop_event.set()
-
-    signal.signal(signal.SIGINT, _stop)
-    signal.signal(signal.SIGTERM, _stop)
-
-    await stop_event.wait()
-    await app.stop()
-    print("Bot stopped.")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+logger.info("Starting bot...")
+app.run()
