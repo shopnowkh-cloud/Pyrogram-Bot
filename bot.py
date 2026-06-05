@@ -280,7 +280,8 @@ def create_qr(text: str) -> bytes:
     raise ValueError('Cannot generate QR')
 
 # ── Remove Background ──────────────────────────────────────────────────────────
-async def remove_bg(image_bytes: bytes) -> bytes:
+async def remove_bg(image_bytes: bytes) -> tuple:
+    """Returns (result_bytes, credits_charged, credits_remaining)."""
     api_key = os.environ['REMOVE_BG_API_KEY']
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(
@@ -290,7 +291,9 @@ async def remove_bg(image_bytes: bytes) -> bytes:
             headers={'X-Api-Key': api_key},
         )
     if r.status_code == 200:
-        return r.content
+        charged   = r.headers.get('X-Credits-Charged', '?')
+        remaining = r.headers.get('X-Credits-Remaining', '?')
+        return r.content, charged, remaining
     raise RuntimeError(f'remove.bg error {r.status_code}: {r.text}')
 
 # ── QR: scan ──────────────────────────────────────────────────────────────────
@@ -685,14 +688,16 @@ async def handle_pdf_rename(client: Client, message: Message, sess: UserSession)
 # ── Remove Background handler ──────────────────────────────────────────────────
 async def handle_rmbg(client: Client, message: Message, sess: UserSession):
     cid  = message.chat.id
+    uid  = message.from_user.id
+    user = message.from_user
     p, dc = message.photo, message.document
     if not p and not dc:
         await edit_or_send(client, sess, cid, '⚠️ Upload <b>រូបភាព</b>!', IK_RMBG)
         sess.state = S_RMBG; return
     try:
         await edit_or_send(client, sess, cid, '⏳ <b>AI កំពុងលុប Background...</b>')
-        raw    = await download_file(client, p.file_id if p else dc.file_id)
-        result = await remove_bg(raw)
+        raw                        = await download_file(client, p.file_id if p else dc.file_id)
+        result, charged, remaining = await remove_bg(raw)
         await safe_delete(client, cid, message.id)
         IK_RMBG_DONE = mkb([
             [ikb('🪄 លុបថ្មី', 'rmbg'), ikb('🏠 ម៉ឺនុយមេ', 'home')]
@@ -703,6 +708,27 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
             parse_mode=ParseMode.HTML)
         m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_RMBG_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id); sess.state = S_MAIN
+
+        # ── Notify admin ────────────────────────────────────────────────────
+        try:
+            admin_id = int(os.environ.get('ADMIN_ID', 0))
+            if admin_id:
+                name = (user.first_name or '') + (' ' + user.last_name if user.last_name else '')
+                uname = f'@{user.username}' if user.username else 'គ្មាន'
+                await client.send_message(
+                    admin_id,
+                    f'🪄 <b>Remove Background ប្រើថ្មី</b>\n'
+                    f'━━━━━━━━━\n'
+                    f'👤 ឈ្មោះ : <b>{name.strip()}</b>\n'
+                    f'🆔 ID       : <code>{uid}</code>\n'
+                    f'📛 Username : {uname}\n'
+                    f'━━━━━━━━━\n'
+                    f'💳 Credit ប្រើ       : <b>{charged}</b>\n'
+                    f'🏦 Credit នៅសល់ : <b>{remaining}</b>',
+                    parse_mode=ParseMode.HTML)
+        except Exception as ae:
+            logger.warning(f'admin notify rmbg: {ae}')
+
     except Exception as e:
         logger.error(f'rmbg: {e}')
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_RMBG)
