@@ -6,12 +6,3 @@ opencv-python-headless>=4.8.0
 numpy>=1.24.0
 PyMuPDF>=1.23.0
 httpx>=0.25.0
-httpx
-numpy
-opencv-python-headless
-Pillow
-PyMuPDF
-pyrofork
-pyrogram
-qrcode[pil]
-TgCrypto
