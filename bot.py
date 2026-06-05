@@ -280,8 +280,29 @@ def create_qr(text: str) -> bytes:
     raise ValueError('Cannot generate QR')
 
 # ── Remove Background ──────────────────────────────────────────────────────────
+async def rmbg_account() -> dict:
+    """Fetch remove.bg account info (credits + free calls)."""
+    api_key = os.environ['REMOVE_BG_API_KEY']
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(
+            'https://api.remove.bg/v1.0/account',
+            headers={'X-Api-Key': api_key},
+        )
+    if r.status_code == 200:
+        data = r.json().get('data', {})
+        attrs = data.get('attributes', {})
+        credits = attrs.get('credits', {})
+        return {
+            'total_credits': credits.get('total', 0),
+            'subscription':  credits.get('subscription', 0),
+            'payg':          credits.get('payg', 0),
+            'free_calls':    attrs.get('api', {}).get('free_calls', 0),
+            'sizes':         attrs.get('api', {}).get('sizes', 'auto'),
+        }
+    return {}
+
 async def remove_bg(image_bytes: bytes) -> tuple:
-    """Returns (result_bytes, credits_charged, credits_remaining)."""
+    """Returns (result_bytes, credits_charged)."""
     api_key = os.environ['REMOVE_BG_API_KEY']
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(
@@ -291,9 +312,9 @@ async def remove_bg(image_bytes: bytes) -> tuple:
             headers={'X-Api-Key': api_key},
         )
     if r.status_code == 200:
-        charged   = r.headers.get('X-Credits-Charged', '?')
-        remaining = r.headers.get('X-Credits-Remaining', '?')
-        return r.content, charged, remaining
+        charged = r.headers.get('x-credits-charged',
+                  r.headers.get('X-Credits-Charged', '0'))
+        return r.content, charged
     raise RuntimeError(f'remove.bg error {r.status_code}: {r.text}')
 
 # ── QR: scan ──────────────────────────────────────────────────────────────────
@@ -314,6 +335,30 @@ app = Client(
     api_hash=os.environ['TELEGRAM_API_HASH'],
     bot_token=os.environ['TELEGRAM_BOT_TOKEN'],
 )
+
+# ── /credits (admin only) ──────────────────────────────────────────────────────
+@app.on_message(filters.command('credits'))
+async def cmd_credits(client: Client, message: Message):
+    admin_id = int(os.environ.get('ADMIN_ID', 0))
+    if not admin_id or message.from_user.id != admin_id:
+        return
+    try:
+        acct  = await rmbg_account()
+        free  = acct.get('free_calls', '?')
+        total = acct.get('total_credits', '?')
+        sub   = acct.get('subscription', '?')
+        payg  = acct.get('payg', '?')
+        await message.reply(
+            f'📊 <b>Remove.bg Account</b>\n'
+            f'━━━━━━━━━\n'
+            f'🎁 Free Calls នៅសល់     : <b>{free}</b>\n'
+            f'🏦 Credit សរុបនៅសល់   : <b>{total}</b>\n'
+            f'🔄 Credit Subscription : <b>{sub}</b>\n'
+            f'💰 Credit Pay-as-go    : <b>{payg}</b>',
+            parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f'/credits: {e}')
+        await message.reply('❌ <b>មានបញ្ហាទាញ credit! ព្យាយាមម្ដងទៀត</b>', parse_mode=ParseMode.HTML)
 
 # ── /start ─────────────────────────────────────────────────────────────────────
 @app.on_message(filters.command('start'))
@@ -696,8 +741,9 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         sess.state = S_RMBG; return
     try:
         await edit_or_send(client, sess, cid, '⏳ <b>AI កំពុងលុប Background...</b>')
-        raw                        = await download_file(client, p.file_id if p else dc.file_id)
-        result, charged, remaining = await remove_bg(raw)
+        raw             = await download_file(client, p.file_id if p else dc.file_id)
+        result, charged = await remove_bg(raw)
+        acct            = await rmbg_account()
         await safe_delete(client, cid, message.id)
         IK_RMBG_DONE = mkb([
             [ikb('🪄 លុបថ្មី', 'rmbg'), ikb('🏠 ម៉ឺនុយមេ', 'home')]
@@ -713,18 +759,21 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         try:
             admin_id = int(os.environ.get('ADMIN_ID', 0))
             if admin_id:
-                name = (user.first_name or '') + (' ' + user.last_name if user.last_name else '')
+                name  = (user.first_name or '') + (' ' + user.last_name if user.last_name else '')
                 uname = f'@{user.username}' if user.username else 'គ្មាន'
+                free  = acct.get('free_calls', '?')
+                total = acct.get('total_credits', '?')
                 await client.send_message(
                     admin_id,
                     f'🪄 <b>Remove Background ប្រើថ្មី</b>\n'
                     f'━━━━━━━━━\n'
-                    f'👤 ឈ្មោះ : <b>{name.strip()}</b>\n'
-                    f'🆔 ID       : <code>{uid}</code>\n'
-                    f'📛 Username : {uname}\n'
+                    f'👤 ឈ្មោះ      : <b>{name.strip()}</b>\n'
+                    f'🆔 ID            : <code>{uid}</code>\n'
+                    f'📛 Username  : {uname}\n'
                     f'━━━━━━━━━\n'
-                    f'💳 Credit ប្រើ       : <b>{charged}</b>\n'
-                    f'🏦 Credit នៅសល់ : <b>{remaining}</b>',
+                    f'💳 Credit ប្រើ           : <b>{charged}</b>\n'
+                    f'🎁 Free Calls នៅសល់ : <b>{free}</b>\n'
+                    f'🏦 Credit សរុបនៅសល់ : <b>{total}</b>',
                     parse_mode=ParseMode.HTML)
         except Exception as ae:
             logger.warning(f'admin notify rmbg: {ae}')
