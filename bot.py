@@ -41,7 +41,6 @@ class UserSession:
     pdf_photos:   list           = field(default_factory=list)
     pdf_name:     Optional[str]  = None
     pdf2img_fmt:  Optional[str]  = None
-    style_results: list[str]     = field(default_factory=list)
 
 _sessions: dict[int, UserSession] = {}
 
@@ -319,16 +318,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
     uid  = query.from_user.id
     sess = get_sess(uid)
 
-    # ── sc: style-copy ──────────────────────────────────────────────────────
-    if d.startswith('sc:'):
-        try:
-            styled = sess.style_results[int(d[3:])]
-            await query.answer()
-            await client.send_message(cid, f'<code>{styled}</code>', parse_mode=ParseMode.HTML)
-        except Exception:
-            await query.answer('❌ error')
-        return
-
     await query.answer()
     save_msg(sess, cid, query.message.id)
 
@@ -521,9 +510,7 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
         return out
 
     pairs = await loop.run_in_executor(None, compute)
-    sess.style_results = [styled for _, styled in pairs]
-
-    rows = [[ikb(styled, f'sc:{i}')] for i, (_, styled) in enumerate(pairs)]
+    rows = [[InlineKeyboardButton(styled, copy_text=styled)] for _, styled in pairs]
     rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')])
 
     if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None

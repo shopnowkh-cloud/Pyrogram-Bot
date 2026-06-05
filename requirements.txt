@@ -1,4 +1,4 @@
-pyrogram==2.0.106
+pyrofork>=2.3.69
 TgCrypto==1.2.5
 Pillow>=10.0.0
 qrcode[pil]>=7.4.2
