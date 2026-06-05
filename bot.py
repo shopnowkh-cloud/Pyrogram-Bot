@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import io
+import json
 import logging
 import asyncio
 import httpx
@@ -18,6 +19,32 @@ from pyrogram.types import (
 # ── Logger ─────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s|%(levelname)s|%(message)s")
 logger = logging.getLogger(__name__)
+
+# ── Remove-bg stats (persisted to file) ────────────────────────────────────────
+STATS_FILE = 'rmbg_stats.json'
+
+def _load_stats() -> dict:
+    try:
+        with open(STATS_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {'total_uses': 0, 'total_charged': 0}
+
+def _save_stats(stats: dict):
+    try:
+        with open(STATS_FILE, 'w') as f:
+            json.dump(stats, f)
+    except Exception as e:
+        logger.warning(f'stats save: {e}')
+
+def record_rmbg_use(charged_str: str):
+    stats = _load_stats()
+    stats['total_uses'] += 1
+    try:
+        stats['total_charged'] += int(charged_str)
+    except Exception:
+        pass
+    _save_stats(stats)
 
 # ── States ─────────────────────────────────────────────────────────────────────
 S_MAIN       = 0
@@ -720,6 +747,9 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         raw             = await download_file(client, p.file_id if p else dc.file_id)
         result, charged = await remove_bg(raw)
         acct            = await rmbg_account()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, record_rmbg_use, charged)
+        stats = await loop.run_in_executor(None, _load_stats)
         await safe_delete(client, cid, message.id)
         IK_RMBG_DONE = mkb([
             [ikb('🪄 លុបថ្មី', 'rmbg'), ikb('🏠 ម៉ឺនុយមេ', 'home')]
@@ -747,9 +777,12 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
                     f'🆔 ID            : <code>{uid}</code>\n'
                     f'📛 Username  : {uname}\n'
                     f'━━━━━━━━━\n'
-                    f'💳 Credit ប្រើ           : <b>{charged}</b>\n'
-                    f'🎁 Free Calls នៅសល់ : <b>{free}</b>\n'
-                    f'🏦 Credit សរុបនៅសល់ : <b>{total}</b>',
+                    f'💳 Credit ប្រើលើក​នេះ       : <b>{charged}</b>\n'
+                    f'📊 ប្រើសរុប (ដង)            : <b>{stats["total_uses"]}</b>\n'
+                    f'💰 Credit ប្រើសរុប           : <b>{stats["total_charged"]}</b>\n'
+                    f'━━━━━━━━━\n'
+                    f'🎁 Free Calls នៅសល់     : <b>{free}</b>\n'
+                    f'🏦 Credit សរុបនៅសល់   : <b>{total}</b>',
                     parse_mode=ParseMode.HTML)
         except Exception as ae:
             logger.warning(f'admin notify rmbg: {ae}')
