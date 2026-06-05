@@ -336,30 +336,6 @@ app = Client(
     bot_token=os.environ['TELEGRAM_BOT_TOKEN'],
 )
 
-# ── /credits (admin only) ──────────────────────────────────────────────────────
-@app.on_message(filters.command('credits'))
-async def cmd_credits(client: Client, message: Message):
-    admin_id = int(os.environ.get('ADMIN_ID', 0))
-    if not admin_id or message.from_user.id != admin_id:
-        return
-    try:
-        acct  = await rmbg_account()
-        free  = acct.get('free_calls', '?')
-        total = acct.get('total_credits', '?')
-        sub   = acct.get('subscription', '?')
-        payg  = acct.get('payg', '?')
-        await message.reply(
-            f'📊 <b>Remove.bg Account</b>\n'
-            f'━━━━━━━━━\n'
-            f'🎁 Free Calls នៅសល់     : <b>{free}</b>\n'
-            f'🏦 Credit សរុបនៅសល់   : <b>{total}</b>\n'
-            f'🔄 Credit Subscription : <b>{sub}</b>\n'
-            f'💰 Credit Pay-as-go    : <b>{payg}</b>',
-            parse_mode=ParseMode.HTML)
-    except Exception as e:
-        logger.error(f'/credits: {e}')
-        await message.reply('❌ <b>មានបញ្ហាទាញ credit! ព្យាយាមម្ដងទៀត</b>', parse_mode=ParseMode.HTML)
-
 # ── /start ─────────────────────────────────────────────────────────────────────
 @app.on_message(filters.command('start'))
 async def cmd_start(client: Client, message: Message):
