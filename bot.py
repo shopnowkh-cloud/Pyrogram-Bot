@@ -285,12 +285,9 @@ async def remove_bg(image_bytes: bytes) -> bytes:
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(
             'https://api.remove.bg/v1.0/removebg',
-            content=image_bytes,
-            headers={
-                'X-Api-Key': api_key,
-                'Content-Type': 'application/octet-stream',
-            },
-            params={'size': 'auto'},
+            files={'image_file': ('image.png', image_bytes, 'image/png')},
+            data={'size': 'auto'},
+            headers={'X-Api-Key': api_key},
         )
     if r.status_code == 200:
         return r.content
