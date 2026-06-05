@@ -71,6 +71,7 @@ class UserSession:
     pdf_photos:   list           = field(default_factory=list)
     pdf_name:     Optional[str]  = None
     pdf2img_fmt:  Optional[str]  = None
+    tts_voice:    str            = 'km-F'
 
 _sessions: dict[int, UserSession] = {}
 
@@ -309,53 +310,50 @@ def create_qr(text: str) -> bytes:
             continue
     raise ValueError('Cannot generate QR')
 
-# ── VoxCPM2 TTS via HuggingFace Space ──────────────────────────────────────────
-_voxcpm_client: GradioClient | None = None
+# ── Edge TTS via HuggingFace Space ─────────────────────────────────────────────
+EDGE_TTS_VOICES = {
+    'km-F': 'km-KH-SreymomNeural - km-KH (Female)',
+    'km-M': 'km-KH-PisethNeural - km-KH (Male)',
+    'en-F': 'en-US-JennyNeural - en-US (Female)',
+    'en-M': 'en-US-GuyNeural - en-US (Male)',
+    'zh-F': 'zh-CN-XiaoxiaoNeural - zh-CN (Female)',
+    'zh-M': 'zh-CN-YunxiNeural - zh-CN (Male)',
+}
+_edge_tts_client: GradioClient | None = None
 
-def _get_voxcpm_client(force_new: bool = False) -> GradioClient:
-    global _voxcpm_client
-    if _voxcpm_client is None or force_new:
-        _voxcpm_client = GradioClient('openbmb/VoxCPM-Demo')
-    return _voxcpm_client
+def _get_edge_client(force_new: bool = False) -> GradioClient:
+    global _edge_tts_client
+    if _edge_tts_client is None or force_new:
+        _edge_tts_client = GradioClient('innoai/Edge-TTS-Text-to-Speech')
+    return _edge_tts_client
 
-def _voxcpm_generate(text: str, control: str = '', cfg: float = 2.0) -> bytes:
-    import time
+def _edge_generate(text: str, voice_key: str = 'km-F', rate: float = 0, pitch: float = 0) -> bytes:
+    voice = EDGE_TTS_VOICES.get(voice_key, EDGE_TTS_VOICES['km-F'])
     last_err = None
     for attempt in range(3):
         try:
-            client = _get_voxcpm_client(force_new=(attempt > 0))
+            client = _get_edge_client(force_new=(attempt > 0))
             result = client.predict(
-                text_input=text,
-                control_instruction=control,
-                reference_wav_path_input=None,
-                use_prompt_text=False,
-                prompt_text_input='',
-                cfg_value_input=cfg,
-                do_normalize=True,
-                denoise=False,
-                api_name='/generate',
+                text=text,
+                voice=voice,
+                rate=rate,
+                pitch=pitch,
+                api_name='/tts_interface',
             )
-            wav_path = result[0] if isinstance(result, (list, tuple)) else result
-            with open(wav_path, 'rb') as f:
+            mp3_path = result[0] if isinstance(result, (list, tuple)) else result
+            with open(mp3_path, 'rb') as f:
                 return f.read()
         except Exception as e:
             last_err = e
-            logger.warning(f'voxcpm attempt {attempt+1} failed: {e}')
-            if attempt < 2:
-                time.sleep(5)
+            logger.warning(f'edge-tts attempt {attempt+1} failed: {e}')
+            import time; time.sleep(3)
     raise last_err
 
-async def text_to_speech_vox(text: str) -> bytes:
-    import re
-    control = ''
-    m = re.match(r'^\(([^)]+)\)(.*)', text, re.DOTALL)
-    if m:
-        control = m.group(1).strip()
-        text    = m.group(2).strip()
-    if not text:
+async def text_to_speech_edge(text: str, voice_key: str = 'km-F') -> bytes:
+    if not text.strip():
         raise ValueError('អក្សរទទេ!')
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _voxcpm_generate, text, control)
+    return await loop.run_in_executor(None, _edge_generate, text, voice_key)
 
 # ── Remove Background ──────────────────────────────────────────────────────────
 async def rmbg_account() -> dict:
@@ -566,11 +564,33 @@ async def cb_handler(client: Client, query: CallbackQuery):
         reset_sess(uid); sess = get_sess(uid)
         save_msg(sess, cid, query.message.id)
         sess.state = S_TTS
+        sess.tts_voice = 'km-F'
+        IK_TTS_MENU = mkb([
+            [ikb('🇰🇭 ស្រី (Sreymom)', 'tts_v:km-F'), ikb('🇰🇭 ប្រុស (Piseth)', 'tts_v:km-M')],
+            [ikb('🇺🇸 Female (Jenny)', 'tts_v:en-F'), ikb('🇺🇸 Male (Guy)',    'tts_v:en-M')],
+            [ikb('🇨🇳 女 (Xiaoxiao)',  'tts_v:zh-F'), ikb('🇨🇳 男 (Yunxi)',    'tts_v:zh-M')],
+            [ikb('❌ បោះបង់', 'cancel_main')],
+        ])
         await edit(
-            '🎙️ <b>VoxCPM2 — បំប្លែងអក្សរជាសំឡេង</b>\n\n'
-            '🌍 គាំទ្រ <b>30 ភាសា</b> ដោយស្វ័យប្រវត្តិ\n'
-            '🎨 <b>Voice Design</b> — ពិពណ៌នាសំឡេងជា ( ) នៅដើម\n'
-            '  <i>ឧទាហរណ៍: (សំឡេងស្ត្រីក្មេង, ធ្ងន់, ស្ងប់)ជំរាបសួរ!</i>\n\n'
+            '🎙️ <b>Edge TTS — បំប្លែងអក្សរជាសំឡេង</b>\n\n'
+            '1️⃣ <b>ជ្រើសសំឡេង</b> ខាងក្រោម\n'
+            '2️⃣ <b>វាយអក្សរ</b> ហើយ Bot នឹង generate ភ្លាមៗ\n\n'
+            '✅ <b>ភាសាខ្មែរ ✓  English ✓  中文 ✓</b>\n\n'
+            '👇 <b>ជ្រើសសំឡេងជាមុន:</b>',
+            IK_TTS_MENU)
+        return
+
+    # ── tts voice select ────────────────────────────────────────────────────
+    if d.startswith('tts_v:'):
+        vk = d.split(':', 1)[1]
+        sess.tts_voice = vk
+        vnames = {'km-F':'🇰🇭 ស្រី Sreymom','km-M':'🇰🇭 ប្រុស Piseth',
+                  'en-F':'🇺🇸 Jenny','en-M':'🇺🇸 Guy',
+                  'zh-F':'🇨🇳 Xiaoxiao','zh-M':'🇨🇳 Yunxi'}
+        vname = vnames.get(vk, vk)
+        sess.state = S_TTS
+        await edit(
+            f'🎙️ <b>Edge TTS</b> — សំឡេង: <b>{vname}</b>\n\n'
             '✏️ <b>វាយអក្សរខាងក្រោម:</b>',
             IK_TTS_CANCEL)
         return
@@ -848,7 +868,7 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_RMBG)
         sess.state = S_RMBG
 
-# ── TTS handler (VoxCPM2) ──────────────────────────────────────────────────────
+# ── TTS handler (Edge TTS) ─────────────────────────────────────────────────────
 async def handle_tts(client: Client, message: Message, sess: UserSession):
     t   = message.text.strip()
     cid = message.chat.id
@@ -858,14 +878,19 @@ async def handle_tts(client: Client, message: Message, sess: UserSession):
     if len(t) > 3000:
         await edit_or_send(client, sess, cid, '⚠️ <b>អក្សរច្រើនពេក! (max 3000 អក្សរ)</b>', IK_TTS_CANCEL)
         return
+    voice_key = getattr(sess, 'tts_voice', 'km-F')
+    vnames = {'km-F':'🇰🇭 Sreymom','km-M':'🇰🇭 Piseth',
+              'en-F':'🇺🇸 Jenny','en-M':'🇺🇸 Guy',
+              'zh-F':'🇨🇳 Xiaoxiao','zh-M':'🇨🇳 Yunxi'}
+    vname = vnames.get(voice_key, voice_key)
     try:
         await safe_delete(client, cid, message.id)
         processing = await client.send_message(
             cid,
-            '⏳ <b>VoxCPM2 កំពុងបំប្លែង...</b>\n<i>(ប្រហែល 15-60 វិនាទី — retry ស្វ័យប្រវត្តិ បើ Space ដំណេក)</i>',
+            f'⏳ <b>Edge TTS កំពុងបំប្លែង...</b> [{vname}]\n<i>(ប្រហែល 5-15 វិនាទី)</i>',
             parse_mode=ParseMode.HTML,
         )
-        audio_bytes = await text_to_speech_vox(t)
+        audio_bytes = await text_to_speech_edge(t, voice_key)
         await safe_delete(client, cid, processing.id)
         if sess.mid:
             await safe_delete(client, cid, sess.mid)
@@ -876,18 +901,18 @@ async def handle_tts(client: Client, message: Message, sess: UserSession):
             [ikb('🏠 ម៉ឺនុយមេ', 'home')],
         ])
         audio_buf = io.BytesIO(audio_bytes)
-        audio_buf.name = 'voxcpm2.wav'
+        audio_buf.name = 'tts.mp3'
         await client.send_voice(
             cid,
             audio_buf,
-            caption=f'🎙️ <b>VoxCPM2 — ជោគជ័យ!</b>\n<i>"{preview}"</i>',
+            caption=f'🎙️ <b>Edge TTS [{vname}] — ជោគជ័យ!</b>\n<i>"{preview}"</i>',
             parse_mode=ParseMode.HTML,
         )
         m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_TTS_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id)
         sess.state = S_TTS
     except Exception as e:
-        logger.error(f'tts voxcpm2: {e}')
+        logger.error(f'tts edge: {e}')
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_TTS_CANCEL)
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
