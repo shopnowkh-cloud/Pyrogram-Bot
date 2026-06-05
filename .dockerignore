@@ -1,0 +1,32 @@
+# Session files — never bake auth state into the image
+*.session
+*.session-journal
+
+# Replit / dev environment
+.replit
+.replitignore
+.local/
+.cache/
+.upm/
+.pythonlibs/
+.agents/
+
+# Node / pnpm (not needed in container)
+node_modules/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+package.json
+.npmrc
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Misc
+.git/
+.gitignore
+*.md
+scripts/
+pyproject.toml
