@@ -771,18 +771,8 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
                 total = acct.get('total_credits', '?')
                 await client.send_message(
                     admin_id,
-                    f'🪄 <b>Remove Background ប្រើថ្មី</b>\n'
-                    f'━━━━━━━━━\n'
-                    f'👤 ឈ្មោះ      : <b>{name.strip()}</b>\n'
-                    f'🆔 ID            : <code>{uid}</code>\n'
-                    f'📛 Username  : {uname}\n'
-                    f'━━━━━━━━━\n'
-                    f'💳 Credit ប្រើលើក​នេះ       : <b>{charged}</b>\n'
-                    f'📊 ប្រើសរុប (ដង)            : <b>{stats["total_uses"]}</b>\n'
-                    f'💰 Credit ប្រើសរុប           : <b>{stats["total_charged"]}</b>\n'
-                    f'━━━━━━━━━\n'
-                    f'🎁 Free Calls នៅសល់     : <b>{free}</b>\n'
-                    f'🏦 Credit សរុបនៅសល់   : <b>{total}</b>',
+                    f'🪄 <b>{name.strip()}</b> ({uname}) បានប្រើ Remove BG\n'
+                    f'🎁 Free Calls នៅសល់ : <b>{free}</b>',
                     parse_mode=ParseMode.HTML)
         except Exception as ae:
             logger.warning(f'admin notify rmbg: {ae}')
