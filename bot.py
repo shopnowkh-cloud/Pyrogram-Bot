@@ -30,6 +30,7 @@ S_QR_CREATE  = 6
 S_QR_SCAN    = 7
 S_PDF_RENAME = 8
 S_GOLD       = 9
+S_RMBG       = 10
 
 # ── Session ────────────────────────────────────────────────────────────────────
 @dataclass
@@ -70,8 +71,10 @@ def ikb_url(text: str, url: str) -> InlineKeyboardButton:
 IK_MAIN = mkb([
     [ikb('✍️ រចនាប័ទ្មអក្សរ', 'style'),  ikb('🗂️ បំប្លែង PDF', 'doc')],
     [ikb('📷 QR Code', 'qr'),             ikb('🥇 ហាងឆេងមាស', 'gold')],
+    [ikb('🪄 លុប Background AI', 'rmbg')],
     [ikb_url('🎙️ បង្កើតសំឡេង Ai', 'https://t.me/limsovannradybot?start=start')],
 ])
+IK_RMBG = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
 IK_DOC = mkb([
     [ikb('🖼️ រូបភាព → PDF', 'photo_pdf')],
     [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
@@ -179,7 +182,8 @@ HOME_TEXT = (
     '✍️  រចនាប័ទ្មអក្សរ\n'
     '🗂️  បំប្លែង PDF\n'
     '📷  QR Code\n'
-    '🥇  ហាងឆេងមាស'
+    '🥇  ហាងឆេងមាស\n'
+    '🪄  លុប Background AI'
 )
 
 # ── Gold price ─────────────────────────────────────────────────────────────────
@@ -274,6 +278,23 @@ def create_qr(text: str) -> bytes:
         except Exception:
             continue
     raise ValueError('Cannot generate QR')
+
+# ── Remove Background ──────────────────────────────────────────────────────────
+async def remove_bg(image_bytes: bytes) -> bytes:
+    api_key = os.environ['REMOVE_BG_API_KEY']
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        r = await client.post(
+            'https://api.remove.bg/v1.0/removebg',
+            content=image_bytes,
+            headers={
+                'X-Api-Key': api_key,
+                'Content-Type': 'application/octet-stream',
+            },
+            params={'size': 'auto'},
+        )
+    if r.status_code == 200:
+        return r.content
+    raise RuntimeError(f'remove.bg error {r.status_code}: {r.text}')
 
 # ── QR: scan ──────────────────────────────────────────────────────────────────
 def scan_qr(image_bytes: bytes) -> list:
@@ -432,6 +453,15 @@ async def cb_handler(client: Client, query: CallbackQuery):
             '📤 <b>Upload រូបភាព QR:</b>', IK_CANCEL_QR)
         sess.state = S_QR_SCAN; return
 
+    # ── rmbg ────────────────────────────────────────────────────────────────
+    if d == 'rmbg':
+        await edit(
+            '🪄 <b>លុប Background AI</b>\n\n'
+            'Upload រូបភាព Bot នឹងលុប Background ជូន\n'
+            'Format: JPG · PNG · WEBP\n\n'
+            '📤 <b>Upload រូបភាព:</b>', IK_RMBG)
+        sess.state = S_RMBG; return
+
     # ── gold ────────────────────────────────────────────────────────────────
     if d in ('gold', 'gold_live', 'cancel_gold'):
         await edit('⏳ <b>កំពុងទាញតម្លៃ...</b>')
@@ -473,6 +503,7 @@ async def media_handler(client: Client, message: Message):
     if   sess.state == S_PDF:     await handle_pdf_photo(client, message, sess)
     elif sess.state == S_PDF2IMG: await handle_pdf2img(client, message, sess)
     elif sess.state == S_QR_SCAN: await handle_qr_scan(client, message, sess)
+    elif sess.state == S_RMBG:    await handle_rmbg(client, message, sess)
     else:                         await handle_fallback(client, message, sess)
 
 # ── Style handler ──────────────────────────────────────────────────────────────
@@ -653,6 +684,32 @@ async def handle_pdf_rename(client: Client, message: Message, sess: UserSession)
     msg = await client.send_message(cid, txt, reply_markup=ik_pdf(n, sess.pdf_name), parse_mode=ParseMode.HTML)
     save_msg(sess, cid, msg.id); sess.state = S_PDF
 
+
+# ── Remove Background handler ──────────────────────────────────────────────────
+async def handle_rmbg(client: Client, message: Message, sess: UserSession):
+    cid  = message.chat.id
+    p, dc = message.photo, message.document
+    if not p and not dc:
+        await edit_or_send(client, sess, cid, '⚠️ Upload <b>រូបភាព</b>!', IK_RMBG)
+        sess.state = S_RMBG; return
+    try:
+        await edit_or_send(client, sess, cid, '⏳ <b>AI កំពុងលុប Background...</b>')
+        raw    = await download_file(client, p.file_id if p else dc.file_id)
+        result = await remove_bg(raw)
+        await safe_delete(client, cid, message.id)
+        IK_RMBG_DONE = mkb([
+            [ikb('🪄 លុបថ្មី', 'rmbg'), ikb('🏠 ម៉ឺនុយមេ', 'home')]
+        ])
+        await client.send_document(
+            cid, io.BytesIO(result), file_name='removed_bg.png',
+            caption='✅ <b>លុប Background ជោគជ័យ!</b>',
+            parse_mode=ParseMode.HTML)
+        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_RMBG_DONE, parse_mode=ParseMode.HTML)
+        save_msg(sess, cid, m.id); sess.state = S_MAIN
+    except Exception as e:
+        logger.error(f'rmbg: {e}')
+        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_RMBG)
+        sess.state = S_RMBG
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
 async def handle_fallback(client: Client, message: Message, sess: UserSession):
