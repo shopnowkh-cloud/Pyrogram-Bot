@@ -329,26 +329,20 @@ async def rmbg_account() -> dict:
     return {}
 
 async def remove_bg(image_bytes: bytes) -> tuple:
-    """Returns (result_bytes, credits_charged). Tries hd → auto fallback."""
-    api_key  = os.environ['REMOVE_BG_API_KEY']
-    headers  = {'X-Api-Key': api_key}
-    files    = {'image_file': ('image.png', image_bytes, 'image/png')}
+    """Returns (result_bytes, credits_charged)."""
+    api_key = os.environ['REMOVE_BG_API_KEY']
     async with httpx.AsyncClient(timeout=60.0) as client:
-        for size in ('hd', 'auto'):
-            r = await client.post(
-                'https://api.remove.bg/v1.0/removebg',
-                files=files,
-                data={'size': size, 'format': 'png', 'channels': 'alpha'},
-                headers=headers,
-            )
-            if r.status_code == 200:
-                charged = r.headers.get('x-credits-charged',
-                          r.headers.get('X-Credits-Charged', '0'))
-                return r.content, charged
-            if r.status_code == 402 and size == 'hd':
-                continue
-            raise RuntimeError(f'remove.bg error {r.status_code}: {r.text}')
-    raise RuntimeError('remove.bg: all size attempts failed')
+        r = await client.post(
+            'https://api.remove.bg/v1.0/removebg',
+            files={'image_file': ('image.png', image_bytes, 'image/png')},
+            data={'size': 'auto'},
+            headers={'X-Api-Key': api_key},
+        )
+    if r.status_code == 200:
+        charged = r.headers.get('x-credits-charged',
+                  r.headers.get('X-Credits-Charged', '0'))
+        return r.content, charged
+    raise RuntimeError(f'remove.bg error {r.status_code}: {r.text}')
 
 # ── QR: scan ──────────────────────────────────────────────────────────────────
 def scan_qr(image_bytes: bytes) -> list:
