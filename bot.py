@@ -315,8 +315,7 @@ _voxcpm_client: GradioClient | None = None
 def _get_voxcpm_client() -> GradioClient:
     global _voxcpm_client
     if _voxcpm_client is None:
-        hf_token = os.environ.get('HF_TOKEN') or None
-        _voxcpm_client = GradioClient('openbmb/VoxCPM-Demo', hf_token=hf_token)
+        _voxcpm_client = GradioClient('openbmb/VoxCPM-Demo')
     return _voxcpm_client
 
 def _voxcpm_generate(text: str, cfg: float, steps: int) -> bytes:
