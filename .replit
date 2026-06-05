@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-3.11"]
+modules = ["python-3.11", "bash"]
 
 [deployment]
 router = "application"
@@ -32,7 +32,7 @@ task = "shell.exec"
 args = "python bot.py"
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
 
 [postMerge]
