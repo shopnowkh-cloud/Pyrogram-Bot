@@ -494,16 +494,20 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
     rows = [[InlineKeyboardButton(styled, copy_text=styled)] for _, styled in pairs]
     rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')])
 
-    if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
     await safe_delete(client, cid, message.id)
 
-    msg = await client.send_message(
-        cid,
-        f'✍️ <b>Style:</b> <code>{t}</code>\n━━━━━━━━━',
-        reply_markup=InlineKeyboardMarkup(rows),
-        parse_mode=ParseMode.HTML,
-    )
-    save_msg(sess, cid, msg.id)
+    text = f'✍️ <b>Style:</b> <code>{t}</code>\n━━━━━━━━━'
+    kb   = InlineKeyboardMarkup(rows)
+    edited = False
+    if sess.mid:
+        try:
+            await client.edit_message_text(cid, sess.mid, text, reply_markup=kb, parse_mode=ParseMode.HTML)
+            edited = True
+        except Exception:
+            pass
+    if not edited:
+        msg = await client.send_message(cid, text, reply_markup=kb, parse_mode=ParseMode.HTML)
+        save_msg(sess, cid, msg.id)
     sess.state = S_STYLE
 
 # ── PDF photo handler ──────────────────────────────────────────────────────────
