@@ -872,9 +872,11 @@ async def handle_tts(client: Client, message: Message, sess: UserSession):
             ))],
             [ikb('🔄 ប្តូរភាសា', 'tts'), ikb('🏠 ម៉ឺនុយមេ', 'home')],
         ])
+        audio_buf = io.BytesIO(audio_bytes)
+        audio_buf.name = 'tts.mp3'
         await client.send_voice(
             cid,
-            io.BytesIO(audio_bytes),
+            audio_buf,
             caption=f'🎙️ <b>TTS ជោគជ័យ!</b>\n<i>"{preview}"</i>',
             parse_mode=ParseMode.HTML,
         )
