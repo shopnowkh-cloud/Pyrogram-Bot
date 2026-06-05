@@ -312,28 +312,38 @@ def create_qr(text: str) -> bytes:
 # ── VoxCPM2 TTS via HuggingFace Space ──────────────────────────────────────────
 _voxcpm_client: GradioClient | None = None
 
-def _get_voxcpm_client() -> GradioClient:
+def _get_voxcpm_client(force_new: bool = False) -> GradioClient:
     global _voxcpm_client
-    if _voxcpm_client is None:
+    if _voxcpm_client is None or force_new:
         _voxcpm_client = GradioClient('openbmb/VoxCPM-Demo')
     return _voxcpm_client
 
 def _voxcpm_generate(text: str, control: str = '', cfg: float = 2.0) -> bytes:
-    client = _get_voxcpm_client()
-    result = client.predict(
-        text_input=text,
-        control_instruction=control,
-        reference_wav_path_input=None,
-        use_prompt_text=False,
-        prompt_text_input='',
-        cfg_value_input=cfg,
-        do_normalize=True,
-        denoise=False,
-        api_name='/generate',
-    )
-    wav_path = result[0] if isinstance(result, (list, tuple)) else result
-    with open(wav_path, 'rb') as f:
-        return f.read()
+    import time
+    last_err = None
+    for attempt in range(3):
+        try:
+            client = _get_voxcpm_client(force_new=(attempt > 0))
+            result = client.predict(
+                text_input=text,
+                control_instruction=control,
+                reference_wav_path_input=None,
+                use_prompt_text=False,
+                prompt_text_input='',
+                cfg_value_input=cfg,
+                do_normalize=True,
+                denoise=False,
+                api_name='/generate',
+            )
+            wav_path = result[0] if isinstance(result, (list, tuple)) else result
+            with open(wav_path, 'rb') as f:
+                return f.read()
+        except Exception as e:
+            last_err = e
+            logger.warning(f'voxcpm attempt {attempt+1} failed: {e}')
+            if attempt < 2:
+                time.sleep(5)
+    raise last_err
 
 async def text_to_speech_vox(text: str) -> bytes:
     import re
@@ -342,6 +352,8 @@ async def text_to_speech_vox(text: str) -> bytes:
     if m:
         control = m.group(1).strip()
         text    = m.group(2).strip()
+    if not text:
+        raise ValueError('អក្សរទទេ!')
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _voxcpm_generate, text, control)
 
@@ -850,7 +862,7 @@ async def handle_tts(client: Client, message: Message, sess: UserSession):
         await safe_delete(client, cid, message.id)
         processing = await client.send_message(
             cid,
-            '⏳ <b>VoxCPM2 កំពុងបំប្លែង...</b>\n<i>(ប្រហែល 10-30 វិនាទី)</i>',
+            '⏳ <b>VoxCPM2 កំពុងបំប្លែង...</b>\n<i>(ប្រហែល 15-60 វិនាទី — retry ស្វ័យប្រវត្តិ បើ Space ដំណេក)</i>',
             parse_mode=ParseMode.HTML,
         )
         audio_bytes = await text_to_speech_vox(t)
