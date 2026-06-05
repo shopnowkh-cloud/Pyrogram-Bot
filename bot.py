@@ -318,25 +318,32 @@ def _get_voxcpm_client() -> GradioClient:
         _voxcpm_client = GradioClient('openbmb/VoxCPM-Demo')
     return _voxcpm_client
 
-def _voxcpm_generate(text: str, cfg: float, steps: int) -> bytes:
+def _voxcpm_generate(text: str, control: str = '', cfg: float = 2.0) -> bytes:
     client = _get_voxcpm_client()
     result = client.predict(
-        text=text,
-        prompt_wav=None,
-        prompt_text='',
-        cfg_value=cfg,
-        inference_timesteps=steps,
-        DoNormalizeText=True,
-        DoDenoisePromptAudio=False,
+        text_input=text,
+        control_instruction=control,
+        reference_wav_path_input=None,
+        use_prompt_text=False,
+        prompt_text_input='',
+        cfg_value_input=cfg,
+        do_normalize=True,
+        denoise=False,
         api_name='/generate',
     )
     wav_path = result[0] if isinstance(result, (list, tuple)) else result
     with open(wav_path, 'rb') as f:
         return f.read()
 
-async def text_to_speech_vox(text: str, cfg: float = 2.0, steps: int = 10) -> bytes:
+async def text_to_speech_vox(text: str) -> bytes:
+    import re
+    control = ''
+    m = re.match(r'^\(([^)]+)\)(.*)', text, re.DOTALL)
+    if m:
+        control = m.group(1).strip()
+        text    = m.group(2).strip()
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _voxcpm_generate, text, cfg, steps)
+    return await loop.run_in_executor(None, _voxcpm_generate, text, control)
 
 # ── Remove Background ──────────────────────────────────────────────────────────
 async def rmbg_account() -> dict:
