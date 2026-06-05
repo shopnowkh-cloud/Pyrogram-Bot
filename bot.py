@@ -35,12 +35,13 @@ S_RMBG       = 10
 # ── Session ────────────────────────────────────────────────────────────────────
 @dataclass
 class UserSession:
-    state:       int            = S_MAIN
-    mid:         Optional[int]  = None
-    cid:         Optional[int]  = None
-    pdf_photos:  list           = field(default_factory=list)
-    pdf_name:    Optional[str]  = None
-    pdf2img_fmt: Optional[str]  = None
+    state:        int            = S_MAIN
+    mid:          Optional[int]  = None
+    cid:          Optional[int]  = None
+    pdf_photos:   list           = field(default_factory=list)
+    pdf_name:     Optional[str]  = None
+    pdf2img_fmt:  Optional[str]  = None
+    style_results: list[str]     = field(default_factory=list)
 
 _sessions: dict[int, UserSession] = {}
 
@@ -317,6 +318,17 @@ async def cb_handler(client: Client, query: CallbackQuery):
     cid  = query.message.chat.id
     uid  = query.from_user.id
     sess = get_sess(uid)
+
+    # ── sc: style-copy ──────────────────────────────────────────────────────
+    if d.startswith('sc:'):
+        try:
+            styled = sess.style_results[int(d[3:])]
+            await query.answer()
+            await client.send_message(cid, f'<code>{styled}</code>', parse_mode=ParseMode.HTML)
+        except Exception:
+            await query.answer('❌ error')
+        return
+
     await query.answer()
     save_msg(sess, cid, query.message.id)
 
@@ -499,35 +511,31 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
     cid  = message.chat.id
     loop = asyncio.get_running_loop()
 
-    def build_lines():
-        lines = [f'✍️ <b>Style:</b> <code>{t}</code>\n━━━━━━━━━']
+    def compute():
+        out = []
         for name, fn in TEXT_STYLES:
             try:
-                lines.append(f'{name}\n<code>{fn(t)}</code>')
+                out.append((name, fn(t)))
             except Exception:
                 pass
-        return lines
+        return out
 
-    lines = await loop.run_in_executor(None, build_lines)
+    pairs = await loop.run_in_executor(None, compute)
+    sess.style_results = [styled for _, styled in pairs]
 
-    IK_DONE = mkb([[ikb('✍️ ដំណើរការថ្មី', 'style_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
+    rows = [[ikb(styled, f'sc:{i}')] for i, (_, styled) in enumerate(pairs)]
+    rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')])
+
     if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
     await safe_delete(client, cid, message.id)
 
-    chunks, cur = [], ''
-    for line in lines:
-        addition = ('\n' + line) if cur else line
-        if len(cur) + len(addition) > 4000:
-            chunks.append(cur); cur = line
-        else:
-            cur += addition
-    if cur: chunks.append(cur)
-
-    for i, chunk in enumerate(chunks):
-        kb  = IK_DONE if i == len(chunks)-1 else None
-        msg = await client.send_message(cid, chunk, reply_markup=kb, parse_mode=ParseMode.HTML)
-        if kb:
-            save_msg(sess, cid, msg.id)
+    msg = await client.send_message(
+        cid,
+        f'✍️ <b>Style:</b> <code>{t}</code>\n━━━━━━━━━',
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.HTML,
+    )
+    save_msg(sess, cid, msg.id)
     sess.state = S_STYLE
 
 # ── PDF photo handler ──────────────────────────────────────────────────────────
