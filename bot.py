@@ -7,7 +7,7 @@ import logging
 import asyncio
 import tempfile
 import httpx
-import edge_tts
+from gradio_client import Client as GradioClient
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -71,7 +71,6 @@ class UserSession:
     pdf_photos:   list           = field(default_factory=list)
     pdf_name:     Optional[str]  = None
     pdf2img_fmt:  Optional[str]  = None
-    tts_voice:    Optional[str]  = None
 
 _sessions: dict[int, UserSession] = {}
 
@@ -105,14 +104,7 @@ IK_MAIN = mkb([
     [ikb('🪄 លុប Background AI', 'rmbg'), ikb('🎙️ បំប្លែងអក្សរជាសំឡេង', 'tts')],
 ])
 IK_RMBG = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
-IK_TTS_LANG = mkb([
-    [ikb('🇰🇭 ភាសាខ្មែរ', 'tts_lang_km'), ikb('🇺🇸 English', 'tts_lang_en')],
-    [ikb('🇨🇳 ភាសាចិន', 'tts_lang_zh'),  ikb('🇯🇵 ภาษาญี่ปุ่น', 'tts_lang_ja')],
-    [ikb('🇹🇭 ภาษาไทย', 'tts_lang_th'),  ikb('🇻🇳 Tiếng Việt', 'tts_lang_vi')],
-    [ikb('🇰🇷 한국어', 'tts_lang_ko'),    ikb('🇫🇷 Français', 'tts_lang_fr')],
-    [ikb('🏠 ម៉ឺនុយមេ', 'home')],
-])
-IK_TTS_CANCEL = mkb([[ikb('🔄 ប្តូរភាសា', 'tts'), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
+IK_TTS_CANCEL = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
 IK_DOC = mkb([
     [ikb('🖼️ រូបភាព → PDF', 'photo_pdf')],
     [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
@@ -317,30 +309,35 @@ def create_qr(text: str) -> bytes:
             continue
     raise ValueError('Cannot generate QR')
 
-# ── TTS voices ─────────────────────────────────────────────────────────────────
-TTS_VOICES = {
-    'km': ('km-KH-PisethNeural',   '🇰🇭 ខ្មែរ'),
-    'en': ('en-US-JennyNeural',    '🇺🇸 English'),
-    'zh': ('zh-CN-XiaoxiaoNeural', '🇨🇳 ចិន'),
-    'ja': ('ja-JP-NanamiNeural',   '🇯🇵 ญี่ปุ่น'),
-    'th': ('th-TH-PremwadeeNeural','🇹🇭 ไทย'),
-    'vi': ('vi-VN-HoaiMyNeural',   '🇻🇳 Việt'),
-    'ko': ('ko-KR-SunHiNeural',    '🇰🇷 한국어'),
-    'fr': ('fr-FR-DeniseNeural',   '🇫🇷 Français'),
-}
+# ── VoxCPM2 TTS via HuggingFace Space ──────────────────────────────────────────
+_voxcpm_client: GradioClient | None = None
 
-async def text_to_speech(text: str, voice: str) -> bytes:
-    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
-        tmp_path = f.name
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(tmp_path)
-    with open(tmp_path, 'rb') as f:
-        data = f.read()
-    try:
-        os.unlink(tmp_path)
-    except Exception:
-        pass
-    return data
+def _get_voxcpm_client() -> GradioClient:
+    global _voxcpm_client
+    if _voxcpm_client is None:
+        hf_token = os.environ.get('HF_TOKEN') or None
+        _voxcpm_client = GradioClient('openbmb/VoxCPM-Demo', hf_token=hf_token)
+    return _voxcpm_client
+
+def _voxcpm_generate(text: str, cfg: float, steps: int) -> bytes:
+    client = _get_voxcpm_client()
+    result = client.predict(
+        text=text,
+        prompt_wav=None,
+        prompt_text='',
+        cfg_value=cfg,
+        inference_timesteps=steps,
+        DoNormalizeText=True,
+        DoDenoisePromptAudio=False,
+        api_name='/generate',
+    )
+    wav_path = result[0] if isinstance(result, (list, tuple)) else result
+    with open(wav_path, 'rb') as f:
+        return f.read()
+
+async def text_to_speech_vox(text: str, cfg: float = 2.0, steps: int = 10) -> bytes:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _voxcpm_generate, text, cfg, steps)
 
 # ── Remove Background ──────────────────────────────────────────────────────────
 async def rmbg_account() -> dict:
@@ -550,26 +547,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
     if d == 'tts':
         reset_sess(uid); sess = get_sess(uid)
         save_msg(sess, cid, query.message.id)
-        await edit(
-            '🎙️ <b>បំប្លែងអក្សរជាសំឡេង (TTS)</b>\n\n'
-            'ជ្រើសរើសភាសាដែលអ្នកចង់ប្រើ:\n\n'
-            '🇰🇭 ខ្មែរ  •  🇺🇸 English  •  🇨🇳 ចិន\n'
-            '🇯🇵 ญี่ปุ่น  •  🇹🇭 ไทย  •  🇻🇳 Việt\n'
-            '🇰🇷 한국어  •  🇫🇷 Français', IK_TTS_LANG)
-        sess.state = S_MAIN; return
-
-    # ── tts language select ──────────────────────────────────────────────
-    if d.startswith('tts_lang_'):
-        lang = d[len('tts_lang_'):]
-        if lang not in TTS_VOICES:
-            await edit(HOME_TEXT, IK_MAIN); return
-        voice_id, lang_label = TTS_VOICES[lang]
-        sess.tts_voice = voice_id
         sess.state = S_TTS
         await edit(
-            f'🎙️ <b>TTS — {lang_label}</b>\n\n'
-            f'ភាសា: <b>{lang_label}</b>\n'
-            f'✏️ <b>វាយអក្សរខាងក្រោម ហើយ Bot នឹងបំប្លែងជាសំឡេង:</b>',
+            '🎙️ <b>VoxCPM2 — បំប្លែងអក្សរជាសំឡេង</b>\n\n'
+            '🌍 គាំទ្រ <b>30 ភាសា</b> ដោយស្វ័យប្រវត្តិ\n'
+            '🎨 <b>Voice Design</b> — ពិពណ៌នាសំឡេងជា ( ) នៅដើម\n'
+            '  <i>ឧទាហរណ៍: (សំឡេងស្ត្រីក្មេង, ធ្ងន់, ស្ងប់)ជំរាបសួរ!</i>\n\n'
+            '✏️ <b>វាយអក្សរខាងក្រោម:</b>',
             IK_TTS_CANCEL)
         return
 
@@ -846,7 +830,7 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_RMBG)
         sess.state = S_RMBG
 
-# ── TTS handler ────────────────────────────────────────────────────────────────
+# ── TTS handler (VoxCPM2) ──────────────────────────────────────────────────────
 async def handle_tts(client: Client, message: Message, sess: UserSession):
     t   = message.text.strip()
     cid = message.chat.id
@@ -856,35 +840,36 @@ async def handle_tts(client: Client, message: Message, sess: UserSession):
     if len(t) > 3000:
         await edit_or_send(client, sess, cid, '⚠️ <b>អក្សរច្រើនពេក! (max 3000 អក្សរ)</b>', IK_TTS_CANCEL)
         return
-    voice = sess.tts_voice or 'km-KH-PisethNeural'
     try:
         await safe_delete(client, cid, message.id)
-        processing = await client.send_message(cid, '⏳ <b>កំពុងបំប្លែងជាសំឡេង...</b>', parse_mode=ParseMode.HTML)
-        audio_bytes = await text_to_speech(t, voice)
+        processing = await client.send_message(
+            cid,
+            '⏳ <b>VoxCPM2 កំពុងបំប្លែង...</b>\n<i>(ប្រហែល 10-30 វិនាទី)</i>',
+            parse_mode=ParseMode.HTML,
+        )
+        audio_bytes = await text_to_speech_vox(t)
         await safe_delete(client, cid, processing.id)
         if sess.mid:
             await safe_delete(client, cid, sess.mid)
             sess.mid = None
         preview = t if len(t) <= 100 else t[:100] + '…'
         IK_TTS_DONE = mkb([
-            [ikb('🎙️ បំប្លែងថ្មី', 'tts_lang_' + next(
-                (k for k, v in TTS_VOICES.items() if v[0] == voice), 'km'
-            ))],
-            [ikb('🔄 ប្តូរភាសា', 'tts'), ikb('🏠 ម៉ឺនុយមេ', 'home')],
+            [ikb('🎙️ បំប្លែងថ្មី', 'tts')],
+            [ikb('🏠 ម៉ឺនុយមេ', 'home')],
         ])
         audio_buf = io.BytesIO(audio_bytes)
-        audio_buf.name = 'tts.mp3'
+        audio_buf.name = 'voxcpm2.wav'
         await client.send_voice(
             cid,
             audio_buf,
-            caption=f'🎙️ <b>TTS ជោគជ័យ!</b>\n<i>"{preview}"</i>',
+            caption=f'🎙️ <b>VoxCPM2 — ជោគជ័យ!</b>\n<i>"{preview}"</i>',
             parse_mode=ParseMode.HTML,
         )
         m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_TTS_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id)
         sess.state = S_TTS
     except Exception as e:
-        logger.error(f'tts: {e}')
+        logger.error(f'tts voxcpm2: {e}')
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_TTS_CANCEL)
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
