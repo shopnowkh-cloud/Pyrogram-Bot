@@ -5,7 +5,9 @@ import io
 import json
 import logging
 import asyncio
+import tempfile
 import httpx
+import edge_tts
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -58,6 +60,7 @@ S_QR_SCAN    = 7
 S_PDF_RENAME = 8
 S_GOLD       = 9
 S_RMBG       = 10
+S_TTS        = 11
 
 # ── Session ────────────────────────────────────────────────────────────────────
 @dataclass
@@ -68,6 +71,7 @@ class UserSession:
     pdf_photos:   list           = field(default_factory=list)
     pdf_name:     Optional[str]  = None
     pdf2img_fmt:  Optional[str]  = None
+    tts_voice:    Optional[str]  = None
 
 _sessions: dict[int, UserSession] = {}
 
@@ -98,10 +102,17 @@ def ikb_url(text: str, url: str) -> InlineKeyboardButton:
 IK_MAIN = mkb([
     [ikb('✍️ រចនាប័ទ្មអក្សរ', 'style'),  ikb('🗂️ បំប្លែង PDF', 'doc')],
     [ikb('📷 QR Code', 'qr'),             ikb('🥇 ហាងឆេងមាស', 'gold')],
-    [ikb('🪄 លុប Background AI', 'rmbg')],
-    [ikb_url('🎙️ បង្កើតសំឡេង Ai', 'https://t.me/limsovannradybot?start=start')],
+    [ikb('🪄 លុប Background AI', 'rmbg'), ikb('🎙️ បំប្លែងអក្សរជាសំឡេង', 'tts')],
 ])
 IK_RMBG = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
+IK_TTS_LANG = mkb([
+    [ikb('🇰🇭 ភាសាខ្មែរ', 'tts_lang_km'), ikb('🇺🇸 English', 'tts_lang_en')],
+    [ikb('🇨🇳 ភាសាចិន', 'tts_lang_zh'),  ikb('🇯🇵 ภาษาญี่ปุ่น', 'tts_lang_ja')],
+    [ikb('🇹🇭 ภาษาไทย', 'tts_lang_th'),  ikb('🇻🇳 Tiếng Việt', 'tts_lang_vi')],
+    [ikb('🇰🇷 한국어', 'tts_lang_ko'),    ikb('🇫🇷 Français', 'tts_lang_fr')],
+    [ikb('🏠 ម៉ឺនុយមេ', 'home')],
+])
+IK_TTS_CANCEL = mkb([[ikb('🔄 ប្តូរភាសា', 'tts'), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
 IK_DOC = mkb([
     [ikb('🖼️ រូបភាព → PDF', 'photo_pdf')],
     [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
@@ -305,6 +316,31 @@ def create_qr(text: str) -> bytes:
         except Exception:
             continue
     raise ValueError('Cannot generate QR')
+
+# ── TTS voices ─────────────────────────────────────────────────────────────────
+TTS_VOICES = {
+    'km': ('km-KH-PisethNeural',   '🇰🇭 ខ្មែរ'),
+    'en': ('en-US-JennyNeural',    '🇺🇸 English'),
+    'zh': ('zh-CN-XiaoxiaoNeural', '🇨🇳 ចិន'),
+    'ja': ('ja-JP-NanamiNeural',   '🇯🇵 ญี่ปุ่น'),
+    'th': ('th-TH-PremwadeeNeural','🇹🇭 ไทย'),
+    'vi': ('vi-VN-HoaiMyNeural',   '🇻🇳 Việt'),
+    'ko': ('ko-KR-SunHiNeural',    '🇰🇷 한국어'),
+    'fr': ('fr-FR-DeniseNeural',   '🇫🇷 Français'),
+}
+
+async def text_to_speech(text: str, voice: str) -> bytes:
+    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
+        tmp_path = f.name
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(tmp_path)
+    with open(tmp_path, 'rb') as f:
+        data = f.read()
+    try:
+        os.unlink(tmp_path)
+    except Exception:
+        pass
+    return data
 
 # ── Remove Background ──────────────────────────────────────────────────────────
 async def rmbg_account() -> dict:
@@ -510,6 +546,33 @@ async def cb_handler(client: Client, query: CallbackQuery):
             '📤 <b>Upload រូបភាព:</b>', IK_RMBG)
         sess.state = S_RMBG; return
 
+    # ── tts menu ────────────────────────────────────────────────────────────
+    if d == 'tts':
+        reset_sess(uid); sess = get_sess(uid)
+        save_msg(sess, cid, query.message.id)
+        await edit(
+            '🎙️ <b>បំប្លែងអក្សរជាសំឡេង (TTS)</b>\n\n'
+            'ជ្រើសរើសភាសាដែលអ្នកចង់ប្រើ:\n\n'
+            '🇰🇭 ខ្មែរ  •  🇺🇸 English  •  🇨🇳 ចិន\n'
+            '🇯🇵 ญี่ปุ่น  •  🇹🇭 ไทย  •  🇻🇳 Việt\n'
+            '🇰🇷 한국어  •  🇫🇷 Français', IK_TTS_LANG)
+        sess.state = S_MAIN; return
+
+    # ── tts language select ──────────────────────────────────────────────
+    if d.startswith('tts_lang_'):
+        lang = d[len('tts_lang_'):]
+        if lang not in TTS_VOICES:
+            await edit(HOME_TEXT, IK_MAIN); return
+        voice_id, lang_label = TTS_VOICES[lang]
+        sess.tts_voice = voice_id
+        sess.state = S_TTS
+        await edit(
+            f'🎙️ <b>TTS — {lang_label}</b>\n\n'
+            f'ភាសា: <b>{lang_label}</b>\n'
+            f'✏️ <b>វាយអក្សរខាងក្រោម ហើយ Bot នឹងបំប្លែងជាសំឡេង:</b>',
+            IK_TTS_CANCEL)
+        return
+
     # ── gold ────────────────────────────────────────────────────────────────
     if d in ('gold', 'gold_live', 'cancel_gold'):
         await edit('⏳ <b>កំពុងទាញតម្លៃ...</b>')
@@ -541,6 +604,7 @@ async def text_handler(client: Client, message: Message):
     if   sess.state == S_STYLE:      await handle_style(client, message, sess)
     elif sess.state == S_QR_CREATE:  await handle_qr_create(client, message, sess)
     elif sess.state == S_PDF_RENAME: await handle_pdf_rename(client, message, sess)
+    elif sess.state == S_TTS:        await handle_tts(client, message, sess)
     else:                            await handle_fallback(client, message, sess)
 
 # ── Photo / document dispatcher ────────────────────────────────────────────────
@@ -781,6 +845,45 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         logger.error(f'rmbg: {e}')
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_RMBG)
         sess.state = S_RMBG
+
+# ── TTS handler ────────────────────────────────────────────────────────────────
+async def handle_tts(client: Client, message: Message, sess: UserSession):
+    t   = message.text.strip()
+    cid = message.chat.id
+    if not t:
+        await edit_or_send(client, sess, cid, '⚠️ <b>សូមវាយអក្សរ!</b>', IK_TTS_CANCEL)
+        return
+    if len(t) > 3000:
+        await edit_or_send(client, sess, cid, '⚠️ <b>អក្សរច្រើនពេក! (max 3000 អក្សរ)</b>', IK_TTS_CANCEL)
+        return
+    voice = sess.tts_voice or 'km-KH-PisethNeural'
+    try:
+        await safe_delete(client, cid, message.id)
+        processing = await client.send_message(cid, '⏳ <b>កំពុងបំប្លែងជាសំឡេង...</b>', parse_mode=ParseMode.HTML)
+        audio_bytes = await text_to_speech(t, voice)
+        await safe_delete(client, cid, processing.id)
+        if sess.mid:
+            await safe_delete(client, cid, sess.mid)
+            sess.mid = None
+        preview = t if len(t) <= 100 else t[:100] + '…'
+        IK_TTS_DONE = mkb([
+            [ikb('🎙️ បំប្លែងថ្មី', 'tts_lang_' + next(
+                (k for k, v in TTS_VOICES.items() if v[0] == voice), 'km'
+            ))],
+            [ikb('🔄 ប្តូរភាសា', 'tts'), ikb('🏠 ម៉ឺនុយមេ', 'home')],
+        ])
+        await client.send_voice(
+            cid,
+            io.BytesIO(audio_bytes),
+            caption=f'🎙️ <b>TTS ជោគជ័យ!</b>\n<i>"{preview}"</i>',
+            parse_mode=ParseMode.HTML,
+        )
+        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_TTS_DONE, parse_mode=ParseMode.HTML)
+        save_msg(sess, cid, m.id)
+        sess.state = S_TTS
+    except Exception as e:
+        logger.error(f'tts: {e}')
+        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_TTS_CANCEL)
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
 async def handle_fallback(client: Client, message: Message, sess: UserSession):
