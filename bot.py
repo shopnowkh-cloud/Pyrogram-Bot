@@ -100,9 +100,9 @@ def ikb_url(text: str, url: str) -> InlineKeyboardButton:
 
 # ── Inline keyboards ───────────────────────────────────────────────────────────
 IK_MAIN = mkb([
-    [ikb('✍️ រចនាប័ទ្មអក្សរ', 'style'),  ikb('🗂️ បំប្លែង PDF', 'doc')],
-    [ikb('📷 QR Code', 'qr'),             ikb('🥇 ហាងឆេងមាស', 'gold')],
-    [ikb('🪄 លុប Background AI', 'rmbg')],
+    [ikb('✍️ រចនាបទអក្សរ', 'style'),  ikb('🗂️ PDF', 'doc')],
+    [ikb('📷 បង្កើត QR', 'qr'),        ikb('🥇 ហាងឆេងមាស', 'gold')],
+    [ikb('🪄 Ai Remove BG', 'rmbg')],
 ])
 IK_RMBG = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
 IK_DOC = mkb([
