@@ -250,11 +250,9 @@ async def safe_delete(client: Client, cid: int, mid: int):
 # ── Keyboards ──────────────────────────────────────────────────────────────────
 def main_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [InlineKeyboardButton('រចនាបទអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942'),
-         InlineKeyboardButton('PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
-        [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003'),
-         InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
-        [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
+        [ikb('✍️ រចនាបទអក្សរ', 'style'), ikb('📄 PDF', 'doc')],
+        [ikb('📷 បង្កើត QR', 'qr'),       ikb('🥇 ហាងឆេងមាស', 'gold')],
+        [ikb('🖼️ Remove BG', 'rmbg')],
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
