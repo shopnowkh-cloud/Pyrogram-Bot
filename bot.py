@@ -869,7 +869,6 @@ def stop_email_polling(uid: int):
 def email_kb() -> InlineKeyboardMarkup:
     return mkb([
         [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
-        [ikb('🗑 លុប Email', 'email_delete')],
         [InlineKeyboardButton('Back', callback_data='home',
                               icon_custom_emoji_id='5877629862306385808')],
     ])
