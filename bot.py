@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from pyrogram import Client, filters
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ButtonStyle
 from pyrogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -551,7 +551,7 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
         return out
 
     pairs = await loop.run_in_executor(None, compute)
-    rows = [[InlineKeyboardButton(styled, copy_text=styled)] for _, styled in pairs]
+    rows = [[InlineKeyboardButton(styled, copy_text=styled, style=ButtonStyle.SUCCESS)] for _, styled in pairs]
     rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')])
 
     await safe_delete(client, cid, message.id)
