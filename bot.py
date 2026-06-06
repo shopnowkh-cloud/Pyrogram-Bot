@@ -108,6 +108,7 @@ class UserSession:
     pdf2img_fmt:  Optional[str]  = None
     tts_voice:    str            = 'km-F'
     ar_adding:    bool           = False
+    ar_cloning:   bool           = False
 
 _sessions: dict[int, UserSession] = {}
 
@@ -737,40 +738,14 @@ async def cb_handler(client: Client, query: CallbackQuery):
         return
 
     if d == 'ar_clone':
-        clone_code = (
-            '# ── Auto-Reaction Bot (Pyrogram) ─────────\n'
-            'import random, asyncio\n'
-            'from pyrogram import Client, filters\n'
-            'from pyrogram.types import Message\n\n'
-            'EMOJIS = ["👍","❤","🔥","🥰","👏","😁","🎉","🤩","🙏","👌"]\n'
-            'ENABLED_CHATS = [-1001234567890]  # ← ដាក់ Chat ID\n'
-            'RANDOM_LEVEL = 0  # 0=100%, 5=50%, 10=0%\n\n'
-            'app = Client("my_bot",\n'
-            '    api_id=YOUR_API_ID,\n'
-            '    api_hash="YOUR_API_HASH",\n'
-            '    bot_token="YOUR_BOT_TOKEN")\n\n'
-            '@app.on_message(filters.channel | filters.group, group=1)\n'
-            'async def auto_react(client, message: Message):\n'
-            '    if message.chat.id not in ENABLED_CHATS: return\n'
-            '    threshold = 1 - (RANDOM_LEVEL / 10)\n'
-            '    if random.random() > threshold: return\n'
-            '    try:\n'
-            '        await client.send_reaction(\n'
-            '            message.chat.id, message.id,\n'
-            '            emoji=random.choice(EMOJIS))\n'
-            '    except Exception as e:\n'
-            '        print(f"react error: {e}")\n\n'
-            'app.run()'
-        )
-        IK_CLONE = mkb([
-            [ikb_url('📂 Source GitHub', 'https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
-            [ikb('🔙 ត្រឡប់', 'ar_back')],
-        ])
+        sess.state = S_AR
+        sess.ar_cloning = True
+        sess.ar_adding  = False
         await edit(
-            '📋 <b>Clone Auto-React Code</b>\n\n'
-            'Copy code ខាងក្រោម ដាក់ក្នុង Bot អ្នក:\n\n'
-            f'<pre><code class="language-python">{clone_code}</code></pre>',
-            IK_CLONE)
+            '📋 <b>Clone Auto-React → Bot របស់អ្នក</b>\n\n'
+            '🔑 <b>វាយ Bot Token</b> ពី @BotFather:\n\n'
+            '<i>ឧទាហរណ៍: 1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</i>',
+            mkb([[ikb('❌ បោះបង់', 'ar_back')]]))
         return
 
     # ── unknown → home ──────────────────────────────────────────────────────
@@ -1110,6 +1085,65 @@ async def handle_fallback(client: Client, message: Message, sess: UserSession):
 async def handle_ar(client: Client, message: Message, sess: UserSession):
     cid = message.chat.id
     IK_AR_BACK = mkb([[ikb('🔙 ត្រឡប់', 'ar_back')]])
+
+    # ── Clone: user entered Bot Token ───────────────────────────────────────
+    if sess.ar_cloning:
+        token = (message.text or '').strip()
+        import re as _re
+        if not _re.match(r'^\d+:[A-Za-z0-9_-]{35,}$', token):
+            await client.send_message(
+                cid,
+                '⚠️ <b>Token មិនត្រូវ!</b>\nFormat: <code>1234567890:AAxxxx...</code>\n\nសូម Copy Token ពី @BotFather',
+                reply_markup=mkb([[ikb('❌ បោះបង់', 'ar_back')]]),
+                parse_mode=ParseMode.HTML)
+            return
+        await safe_delete(client, cid, message.id)
+        sess.ar_cloning = False
+        sess.state = S_AR
+
+        clone_code = (
+            f'# Auto-Reaction Bot\n'
+            f'import random\n'
+            f'from pyrogram import Client, filters\n'
+            f'from pyrogram.types import Message\n\n'
+            f'BOT_TOKEN    = "{token}"\n'
+            f'API_ID       = 0          # ← ពី my.telegram.org\n'
+            f'API_HASH     = ""         # ← ពី my.telegram.org\n\n'
+            f'EMOJIS       = ["👍","❤","🔥","🥰","👏","😁","🎉","🤩","🙏","👌"]\n'
+            f'ENABLED_CHATS = []        # ← [-1001234567890, ...]\n'
+            f'RANDOM_LEVEL = 0          # 0=100%,  5=50%,  10=0%\n\n'
+            f'app = Client("ar_bot", api_id=API_ID,\n'
+            f'             api_hash=API_HASH, bot_token=BOT_TOKEN)\n\n'
+            f'@app.on_message(\n'
+            f'    (filters.channel | filters.group) & ~filters.private, group=1)\n'
+            f'async def auto_react(client, msg: Message):\n'
+            f'    if ENABLED_CHATS and msg.chat.id not in ENABLED_CHATS:\n'
+            f'        return\n'
+            f'    if random.random() > 1 - (RANDOM_LEVEL / 10):\n'
+            f'        return\n'
+            f'    try:\n'
+            f'        await client.send_reaction(\n'
+            f'            msg.chat.id, msg.id,\n'
+            f'            emoji=random.choice(EMOJIS))\n'
+            f'    except Exception as e:\n'
+            f'        print(f"react: {{e}}")\n\n'
+            f'app.run()'
+        )
+        IK_CLONE = mkb([
+            [ikb_url('📂 Source GitHub', 'https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
+            [ikb('🔙 ត្រឡប់', 'ar_back')],
+        ])
+        await client.send_message(
+            cid,
+            f'✅ <b>Code ជាមួយ Token របស់អ្នក:</b>\n\n'
+            f'<pre><code class="language-python">{clone_code}</code></pre>\n\n'
+            f'📌 បំពេញ <code>API_ID</code>, <code>API_HASH</code> ពី '
+            f'<a href="https://my.telegram.org">my.telegram.org</a>\n'
+            f'📌 ដាក់ Chat ID ក្នុង <code>ENABLED_CHATS</code>',
+            reply_markup=IK_CLONE,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True)
+        return
 
     if not sess.ar_adding:
         await handle_fallback(client, message, sess)
