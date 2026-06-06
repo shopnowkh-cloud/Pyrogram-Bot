@@ -666,7 +666,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
             lines.append(f'{status} <code>{name}</code>')
             rows.append([ikb(f'{status} {name}', f'ar_manage:{k}')])
         chat_list = ('\n'.join(lines)) if lines else '<i>មិនទាន់មាន Channel/Group</i>'
-        rows.append([ikb('➕ បន្ថែម Channel/Group', 'ar_add')])
         rows.append([ikb('📋 Clone Code → Bot ផ្សេង', 'ar_clone')])
         rows.append([ikb('🏠 ម៉ឺនុយមេ', 'home')])
         await edit(
