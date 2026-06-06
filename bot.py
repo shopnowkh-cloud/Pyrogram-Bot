@@ -638,7 +638,7 @@ async def handle_pdf_build(client: Client, sess: UserSession, cid: int, orig_msg
             cid, io.BytesIO(pdf_bytes), file_name=fname,
             caption=f'✅ <b>PDF បង្កើតជោគជ័យ!</b>\n📄 {fname}  |  🖼️ {len(sess.pdf_photos)} ទំព័រ',
             parse_mode=ParseMode.HTML)
-        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
+        m = await client.send_message(cid, HOME_TEXT, reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id)
         sess.pdf_photos = []; sess.pdf_name = None; sess.state = S_MAIN
     except Exception as e:
@@ -792,7 +792,7 @@ async def handle_fallback(client: Client, message: Message, sess: UserSession):
     uid = message.from_user.id
     reset_sess(uid); sess = get_sess(uid)
     cid = message.chat.id
-    m   = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
+    m   = await client.send_message(cid, HOME_TEXT, reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
     save_msg(sess, cid, m.id)
 
 
