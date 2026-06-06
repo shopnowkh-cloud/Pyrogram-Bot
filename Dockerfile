@@ -29,7 +29,6 @@ import cv2; \
 import numpy; \
 import fitz; \
 import httpx; \
-import gradio_client; \
 print('All imports OK')"
 
 COPY bot.py .
