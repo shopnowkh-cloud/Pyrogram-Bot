@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import io
+import re
 import logging
 import asyncio
 import tempfile
@@ -265,17 +266,50 @@ async def edit_or_send(client: Client, sess: UserSession, cid: int, text: str, m
     kwargs = dict(reply_markup=markup, parse_mode=ParseMode.HTML)
     if biz:
         kwargs['business_connection_id'] = biz
+        text = _biz_text(text)
+        if markup is not None:
+            kwargs['reply_markup'] = _biz_kb(markup)
     msg = await client.send_message(cid, text, **kwargs)
     save_msg(sess, cid, msg.id)
+
+_EMOJI_TAG_RE = re.compile(r'<emoji id="\d+">(.*?)</emoji>', re.DOTALL)
+
+def _biz_text(text: str) -> str:
+    return _EMOJI_TAG_RE.sub(r'\1', text)
+
+def _biz_kb(kb):
+    if not isinstance(kb, InlineKeyboardMarkup):
+        return kb
+    new_rows = []
+    for row in kb.inline_keyboard:
+        new_row = []
+        for btn in row:
+            if getattr(btn, 'icon_custom_emoji_id', None):
+                new_row.append(InlineKeyboardButton(
+                    text=btn.text,
+                    callback_data=getattr(btn, 'callback_data', None),
+                    copy_text=getattr(btn, 'copy_text', None),
+                ))
+            else:
+                new_row.append(btn)
+        new_rows.append(new_row)
+    return InlineKeyboardMarkup(new_rows)
 
 async def _send(client: Client, sess: UserSession, cid: int, text: str, **kwargs):
     if sess.biz_conn_id:
         kwargs['business_connection_id'] = sess.biz_conn_id
+        text = _biz_text(text)
+        if 'reply_markup' in kwargs:
+            kwargs['reply_markup'] = _biz_kb(kwargs['reply_markup'])
     return await client.send_message(cid, text, **kwargs)
 
 async def _send_doc(client: Client, sess: UserSession, cid: int, doc, **kwargs):
     if sess.biz_conn_id:
         kwargs['business_connection_id'] = sess.biz_conn_id
+        if 'caption' in kwargs:
+            kwargs['caption'] = _biz_text(kwargs['caption'])
+        if 'reply_markup' in kwargs:
+            kwargs['reply_markup'] = _biz_kb(kwargs['reply_markup'])
     return await client.send_document(cid, doc, **kwargs)
 
 async def safe_delete(client: Client, cid: int, mid: int):
