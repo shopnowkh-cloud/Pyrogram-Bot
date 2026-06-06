@@ -609,7 +609,7 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
 
     pairs = await loop.run_in_executor(None, compute)
     btns = [InlineKeyboardButton(styled, copy_text=styled, style=ButtonStyle.DEFAULT) for _, styled in pairs]
-    rows = [[btn] for btn in btns]
+    rows = [btns[i:i+3] for i in range(0, len(btns), 3)]
     rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new', ButtonStyle.SUCCESS)])
     rows.append([ikb('🏠 ម៉ឺនុយមេ', 'home')])
 
