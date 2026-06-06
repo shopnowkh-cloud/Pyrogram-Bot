@@ -1089,7 +1089,7 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     restore = result['restore_key']
     await edit_fn(
         f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
-        f'🔑 <b>Restore Key:</b>\n<code>{restore}</code>',
+        f'🔑 <b>Restore Key:</b>\n<code>{addr}</code>\n<code>{restore}</code>',
         mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
             [InlineKeyboardButton(f'🔑 {restore}', copy_text=restore)],
