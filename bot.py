@@ -397,37 +397,6 @@ async def cmd_start(client: Client, message: Message):
     save_msg(sess, cid, msg.id)
     logger.info(f'[/start] uid={uid}')
 
-# ── /myemail command ───────────────────────────────────────────────────────────
-@app.on_message(filters.incoming & filters.command('myemail'))
-async def cmd_myemail(client: Client, message: Message):
-    uid  = message.from_user.id
-    sess = get_sess(uid)
-    cid  = message.chat.id
-    if sess.email_address:
-        addr    = sess.email_address
-        restore = sess.email_restore or '—'
-        kb = mkb([
-            [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
-            [InlineKeyboardButton(f'🔑 {restore}', copy_text=restore)],
-            [ikb('✉️ Email ថ្មី', 'email_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')],
-        ])
-        await client.send_message(
-            cid,
-            f'📧 <b>Email សកម្មរបស់អ្នក:</b>\n\n'
-            f'<code>{addr}</code>\n\n'
-            f'🔑 <b>Restore Key:</b>\n<code>{restore}</code>',
-            reply_markup=kb,
-            parse_mode=ParseMode.HTML,
-        )
-    else:
-        await client.send_message(
-            cid,
-            '📭 <b>អ្នកមិនទាន់មាន Email សកម្មទេ។</b>\n\n'
-            'ចុច ✉️ Email ថ្មី ដើម្បីបង្កើត Email បណ្ដោះអាសន្ន។',
-            reply_markup=mkb([[ikb('✉️ Email ថ្មី', 'email_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')]]),
-            parse_mode=ParseMode.HTML,
-        )
-
 # ── Callback handler ───────────────────────────────────────────────────────────
 @app.on_callback_query()
 async def cb_handler(client: Client, query: CallbackQuery):
