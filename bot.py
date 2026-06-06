@@ -848,8 +848,7 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
 _email_history: dict[int, list[str]]   = {}
 _polling_tasks: dict[int, asyncio.Task] = {}
 
-POLL_INTERVAL       = 3   # seconds between each check
-EMAIL_SESSIONS_FILE = 'email_sessions.json'
+POLL_INTERVAL = 3   # seconds between each check
 
 def _history_add(uid: int, addr: str):
     _email_history.setdefault(uid, [])
@@ -861,49 +860,6 @@ def _history_remove(uid: int, addr: str):
     if addr in lst:
         lst.remove(addr)
 
-# ── Email: persistence ─────────────────────────────────────────────────────────
-def _save_email_sessions():
-    data = {}
-    for uid, sess in _sessions.items():
-        if sess.email_address and sess.cid:
-            data[str(uid)] = {
-                'email_session': sess.email_session,
-                'email_address': sess.email_address,
-                'email_addr_id': sess.email_addr_id,
-                'email_restore':  sess.email_restore,
-                'email_last_id':  sess.email_last_id,
-                'cid':            sess.cid,
-            }
-    try:
-        with open(EMAIL_SESSIONS_FILE, 'w') as f:
-            json.dump(data, f)
-    except Exception as e:
-        logger.warning(f'save_email_sessions: {e}')
-
-def _load_email_sessions() -> dict:
-    try:
-        with open(EMAIL_SESSIONS_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-async def restore_email_sessions_on_startup(client: Client):
-    data = _load_email_sessions()
-    for uid_str, info in data.items():
-        uid = int(uid_str)
-        cid = info.get('cid')
-        if not cid or not info.get('email_address'):
-            continue
-        sess = get_sess(uid)
-        sess.email_session = info.get('email_session')
-        sess.email_address = info.get('email_address')
-        sess.email_addr_id = info.get('email_addr_id')
-        sess.email_restore  = info.get('email_restore')
-        sess.email_last_id  = info.get('email_last_id')
-        sess.cid            = cid
-        _history_add(uid, info['email_address'])
-        start_email_polling(client, uid, cid)
-        logger.info(f'[startup] restored email polling uid={uid} addr={sess.email_address}')
 
 # ── Email: polling loop ────────────────────────────────────────────────────────
 async def _email_poll_loop(client: Client, uid: int, cid: int):
@@ -936,7 +892,6 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                     sess.email_addr_id = live.get('address_id')
                     if live.get('restore_key'):
                         sess.email_restore = live['restore_key']
-                    _save_email_sessions()
                     logger.info(f'email_poll uid={uid}: recovered via find_user_sessions')
                     mails = await loop.run_in_executor(
                         None, dropmail.get_new_mails, sess.email_session, uid, sess.email_last_id
@@ -949,7 +904,6 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                         sess.email_session = restored['session_id']
                         sess.email_addr_id = restored.get('address_id')
                         sess.email_restore = restored.get('restore_key')
-                        _save_email_sessions()
                         mails = await loop.run_in_executor(
                             None, dropmail.get_new_mails, sess.email_session, uid, sess.email_last_id
                         )
@@ -961,7 +915,6 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                         sess.email_address = None
                         sess.email_addr_id = None
                         sess.email_restore = None
-                        _save_email_sessions()
                         try:
                             await client.send_message(
                                 cid,
@@ -998,7 +951,6 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
             except Exception as se:
                 logger.warning(f'email_poll send uid={uid}: {se}')
         sess.email_last_id = mails[-1].get('id')
-        _save_email_sessions()
     _polling_tasks.pop(uid, None)
 
 # ── Email: watchdog (auto-restart on crash) ────────────────────────────────────
@@ -1291,7 +1243,6 @@ else:
     app.start()
 
 logger.info('🤖 Bot កំពុង Start...')
-_run(restore_email_sessions_on_startup(app))
 _run(_idle())
 
 if _inspect.iscoroutinefunction(app.stop):
