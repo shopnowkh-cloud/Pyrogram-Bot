@@ -99,11 +99,6 @@ def ikb_url(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text, url=url)
 
 # ── Inline keyboards ───────────────────────────────────────────────────────────
-IK_MAIN = mkb([
-    [ikb('✍️ រចនាបទអក្សរ', 'style'),  ikb('🗂️ PDF', 'doc')],
-    [ikb('📷 បង្កើត QR', 'qr'),        ikb('🥇 ហាងឆេងមាស', 'gold')],
-    [ikb('🪄 Ai Remove BG', 'rmbg')],
-])
 IK_DOC = mkb([
     [ikb('🖼️ រូបភាព → PDF', 'photo_pdf')],
     [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
@@ -263,6 +258,17 @@ async def safe_delete(client: Client, cid: int, mid: int):
 _CANCEL_EMOJI = '5877629862306385808'
 _API = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}"
 
+_STYLE_EMOJI = '5298959379393962810'
+
+def main_kb() -> list:
+    return [
+        [{'text': 'រចនាបទអក្សរ', 'callback_data': 'style', 'icon_custom_emoji_id': _STYLE_EMOJI},
+         {'text': '🗂️ PDF', 'callback_data': 'doc'}],
+        [{'text': '📷 បង្កើត QR', 'callback_data': 'qr'},
+         {'text': '🥇 ហាងឆេងមាស', 'callback_data': 'gold'}],
+        [{'text': '🪄 Ai Remove BG', 'callback_data': 'rmbg'}],
+    ]
+
 def cancel_btn(data: str) -> dict:
     return {'text': 'Back', 'callback_data': data, 'icon_custom_emoji_id': _CANCEL_EMOJI}
 
@@ -403,8 +409,9 @@ app = Client(
 async def cmd_start(client: Client, message: Message):
     uid  = message.from_user.id
     sess = reset_sess(uid)
-    msg  = await message.reply(HOME_TEXT, reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
-    save_msg(sess, message.chat.id, msg.id)
+    cid  = message.chat.id
+    mid  = await api_send(cid, HOME_TEXT, main_kb())
+    if mid: save_msg(sess, cid, mid)
     logger.info(f'[/start] uid={uid}')
 
 # ── Callback handler ───────────────────────────────────────────────────────────
@@ -429,7 +436,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
     if d == 'home':
         reset_sess(uid); sess = get_sess(uid)
         save_msg(sess, cid, query.message.id)
-        await edit(HOME_TEXT, IK_MAIN); return
+        await api_edit_or_send(sess, cid, HOME_TEXT, main_kb()); return
 
     # ── style ───────────────────────────────────────────────────────────────
     if d in ('style', 'style_new'):
@@ -444,7 +451,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
     if d == 'cancel_main':
         reset_sess(uid); sess = get_sess(uid)
         save_msg(sess, cid, query.message.id)
-        await edit(HOME_TEXT, IK_MAIN); return
+        await api_edit_or_send(sess, cid, HOME_TEXT, main_kb()); return
 
     # ── doc / cancel_doc ────────────────────────────────────────────────────
     if d in ('doc', 'cancel_doc'):
@@ -565,7 +572,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
 
     # ── unknown → home ──────────────────────────────────────────────────────
-    await edit(HOME_TEXT, IK_MAIN)
+    await api_edit_or_send(sess, cid, HOME_TEXT, main_kb())
     sess.state = S_MAIN
 
 # ── Text message dispatcher ────────────────────────────────────────────────────
@@ -663,8 +670,8 @@ async def handle_pdf_build(client: Client, sess: UserSession, cid: int, orig_msg
             cid, io.BytesIO(pdf_bytes), file_name=fname,
             caption=f'✅ <b>PDF បង្កើតជោគជ័យ!</b>\n📄 {fname}  |  🖼️ {len(sess.pdf_photos)} ទំព័រ',
             parse_mode=ParseMode.HTML)
-        m = await client.send_message(cid, HOME_TEXT, reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
-        save_msg(sess, cid, m.id)
+        mid = await api_send(cid, HOME_TEXT, main_kb())
+        if mid: save_msg(sess, cid, mid)
         sess.pdf_photos = []; sess.pdf_name = None; sess.state = S_MAIN
     except Exception as e:
         logger.error(f'pdf_build: {e}')
@@ -811,8 +818,8 @@ async def handle_fallback(client: Client, message: Message, sess: UserSession):
     uid = message.from_user.id
     reset_sess(uid); sess = get_sess(uid)
     cid = message.chat.id
-    m   = await client.send_message(cid, HOME_TEXT, reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
-    save_msg(sess, cid, m.id)
+    mid = await api_send(cid, HOME_TEXT, main_kb())
+    if mid: save_msg(sess, cid, mid)
 
 
 # ── Run ────────────────────────────────────────────────────────────────────────
