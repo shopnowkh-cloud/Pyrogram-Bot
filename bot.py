@@ -379,6 +379,21 @@ def scan_qr(image_bytes: bytes) -> list:
     return [data] if data else []
 
 
+# ── Whitelist ──────────────────────────────────────────────────────────────────
+_ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
+_whitelist: set[int] = set()
+if _ADMIN_ID:
+    _whitelist.add(_ADMIN_ID)
+
+def is_allowed(uid: int) -> bool:
+    return uid in _whitelist
+
+def _approve_user(uid: int):
+    _whitelist.add(uid)
+
+def _revoke_user(uid: int):
+    _whitelist.discard(uid)
+
 # ── App ────────────────────────────────────────────────────────────────────────
 app = Client(
     'simple_bot',
