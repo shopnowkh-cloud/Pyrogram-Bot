@@ -503,7 +503,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         elif d == 'email_new':
             await handle_email_new(client, sess, cid, _edit, uid)
         elif d == 'email_list':
-            await handle_email_list(client, sess, cid, _edit)
+            await handle_email_list(client, sess, cid, _edit, uid)
         elif d == 'email_delete':
             await handle_email_delete(client, sess, cid, _edit, uid)
         sess.state = S_EMAIL; return
@@ -784,6 +784,9 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_main'))
         sess.state = S_RMBG
 
+# ── Email history (all addresses ever created per user) ────────────────────────
+_email_history: dict[int, list[str]] = {}
+
 # ── Email polling ──────────────────────────────────────────────────────────────
 _polling_tasks: dict[int, asyncio.Task] = {}
 
@@ -895,6 +898,10 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     sess.email_addr_id  = result['address_id']
     sess.email_restore  = result['restore_key']
     sess.email_last_id  = None
+    if uid not in _email_history:
+        _email_history[uid] = []
+    if result['email'] not in _email_history[uid]:
+        _email_history[uid].append(result['email'])
     start_email_polling(client, uid, cid)
     await edit_fn(
         f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
@@ -948,15 +955,18 @@ async def handle_email_inbox(client: Client, sess: UserSession, cid: int, edit_f
             sess.email_last_id = mails[-1].get('id')
     await edit_fn(text, email_view_kb())
 
-async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn):
-    if not sess.email_address:
-        await edit_fn('❌ <b>មិនទាន់មាន Email ទេ។</b>', email_main_kb())
+async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
+    history = _email_history.get(uid, [])
+    if not history:
+        await edit_fn('❌ <b>មិនទាន់មានEmail ត្រូវបានបង្កើតទេ។</b>\nចុច ✉️ Email ថ្មី ដើម្បីចាប់ផ្ដើម។', email_main_kb())
         return
-    await edit_fn(
-        f'📋 <b>Email បច្ចុប្បន្ន</b>\n\n'
-        f'<code>{sess.email_address}</code>',
-        email_view_kb()
-    )
+    lines = []
+    for i, addr in enumerate(reversed(history), 1):
+        active = addr == sess.email_address
+        mark = '✅ <b>(Active)</b>' if active else '⏹'
+        lines.append(f'{i}. <code>{addr}</code>  {mark}')
+    text = f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n' + '\n'.join(lines)
+    await edit_fn(text, email_view_kb())
 
 async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     if not sess.email_addr_id and not sess.email_address:
