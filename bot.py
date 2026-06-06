@@ -551,7 +551,8 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
         return out
 
     pairs = await loop.run_in_executor(None, compute)
-    rows = [[InlineKeyboardButton(styled, copy_text=styled, style=ButtonStyle.DEFAULT)] for _, styled in pairs]
+    btns = [InlineKeyboardButton(styled, copy_text=styled, style=ButtonStyle.DEFAULT) for _, styled in pairs]
+    rows = [btns[i:i+2] for i in range(0, len(btns), 2)]
     rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new', ButtonStyle.SUCCESS), ikb('🏠 ម៉ឺនុយមេ', 'home')])
 
     await safe_delete(client, cid, message.id)
