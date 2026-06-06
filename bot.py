@@ -1129,19 +1129,26 @@ async def handle_ar(client: Client, message: Message, sess: UserSession):
             f'app.run()'
         )
         IK_CLONE = mkb([
+            [ikb_url('🔑 Revoke Token (សុវត្ថិភាព)', 'https://t.me/BotFather')],
             [ikb_url('📂 Source GitHub', 'https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
             [ikb('🔙 ត្រឡប់', 'ar_back')],
         ])
-        await client.send_message(
+        bot_id = token.split(':')[0]
+        file_buf = io.BytesIO(clone_code.encode())
+        file_buf.name = f'auto_react_{bot_id}.py'
+        await client.send_document(
             cid,
-            f'✅ <b>Code ជាមួយ Token របស់អ្នក:</b>\n\n'
-            f'<pre><code class="language-python">{clone_code}</code></pre>\n\n'
-            f'📌 បំពេញ <code>API_ID</code>, <code>API_HASH</code> ពី '
-            f'<a href="https://my.telegram.org">my.telegram.org</a>\n'
-            f'📌 ដាក់ Chat ID ក្នុង <code>ENABLED_CHATS</code>',
+            file_buf,
+            caption=(
+                f'✅ <b>auto_react_{bot_id}.py</b>\n\n'
+                f'📌 បំពេញ <code>API_ID</code> + <code>API_HASH</code> ពី '
+                f'<a href="https://my.telegram.org">my.telegram.org</a>\n'
+                f'📌 ដាក់ Chat ID ក្នុង <code>ENABLED_CHATS</code>\n\n'
+                f'🔴 <b>ប្រយ័ត្ន!</b> Token ស្ថិតក្នុង file — <b>មិនត្រូវ share</b> file នេះ!\n'
+                f'ប្រសិនបើ token leaked → <b>Revoke ភ្លាម</b> ពី @BotFather'
+            ),
             reply_markup=IK_CLONE,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True)
+            parse_mode=ParseMode.HTML)
         return
 
     if not sess.ar_adding:
