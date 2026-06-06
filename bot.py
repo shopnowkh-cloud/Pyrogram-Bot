@@ -82,6 +82,7 @@ class UserSession:
     email_addr_id:   Optional[str]  = None
     email_restore:   Optional[str]  = None
     email_last_id:   Optional[str]  = None
+    biz_conn_id:     Optional[str]  = None
 
 
 _sessions: dict[int, UserSession] = {}
@@ -254,13 +255,17 @@ async def download_file(client: Client, file_id: str) -> bytes:
     return bytes(result.getbuffer()) if hasattr(result, 'getbuffer') else result.read()
 
 async def edit_or_send(client: Client, sess: UserSession, cid: int, text: str, markup=None):
-    if sess.mid:
+    biz = sess.biz_conn_id
+    if sess.mid and not biz:
         try:
             await client.edit_message_text(cid, sess.mid, text, reply_markup=markup, parse_mode=ParseMode.HTML)
             return
         except Exception:
             pass
-    msg = await client.send_message(cid, text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    kwargs = dict(reply_markup=markup, parse_mode=ParseMode.HTML)
+    if biz:
+        kwargs['business_connection_id'] = biz
+    msg = await client.send_message(cid, text, **kwargs)
     save_msg(sess, cid, msg.id)
 
 async def safe_delete(client: Client, cid: int, mid: int):
@@ -393,9 +398,14 @@ async def cmd_start(client: Client, message: Message):
     uid  = message.from_user.id
     sess = reset_sess(uid)
     cid  = message.chat.id
-    msg = await client.send_message(cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    biz  = getattr(message, 'business_connection_id', None)
+    sess.biz_conn_id = biz
+    kwargs = dict(reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    if biz:
+        kwargs['business_connection_id'] = biz
+    msg = await client.send_message(cid, HOME_TEXT, **kwargs)
     save_msg(sess, cid, msg.id)
-    logger.info(f'[/start] uid={uid}')
+    logger.info(f'[/start] uid={uid} biz={biz}')
 
 # ── Callback handler ───────────────────────────────────────────────────────────
 @app.on_callback_query()
@@ -599,10 +609,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
     sess.state = S_MAIN
 
 # ── Text message dispatcher ────────────────────────────────────────────────────
-@app.on_message(filters.incoming & filters.text & ~filters.command(['start']) & filters.private)
+@app.on_message(filters.incoming & filters.text & ~filters.command(['start']) & (filters.private | filters.business))
 async def text_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
+    sess.biz_conn_id = getattr(message, 'business_connection_id', None)
     if   sess.state == S_STYLE:          await handle_style(client, message, sess)
     elif sess.state == S_QR:             await handle_qr_create(client, message, sess)
     elif sess.state == S_PDF_RENAME:     await handle_pdf_rename(client, message, sess)
@@ -611,10 +622,11 @@ async def text_handler(client: Client, message: Message):
 
 
 # ── Photo / document dispatcher ────────────────────────────────────────────────
-@app.on_message(filters.incoming & (filters.photo | filters.document))
+@app.on_message(filters.incoming & (filters.photo | filters.document) & (filters.private | filters.business))
 async def media_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
+    sess.biz_conn_id = getattr(message, 'business_connection_id', None)
     if   sess.state == S_PDF:     await handle_pdf_photo(client, message, sess)
     elif sess.state == S_PDF2IMG: await handle_pdf2img(client, message, sess)
     elif sess.state == S_QR:      await handle_qr_scan(client, message, sess)
