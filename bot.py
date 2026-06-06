@@ -47,6 +47,7 @@ def _email_sess_persist(uid: int, sess) -> None:
         'email':       sess.email_address,
         'restore_key': sess.email_restore,
         'address_id':  sess.email_addr_id,
+        'session_id':  sess.email_session,
     }
     _save_email_sessions(data)
 
@@ -123,6 +124,7 @@ def get_sess(uid: int) -> UserSession:
             sess.email_address = saved['email']
             sess.email_restore = saved['restore_key']
             sess.email_addr_id = saved.get('address_id')
+            sess.email_session = saved.get('session_id')
         _sessions[uid] = sess
     return _sessions[uid]
 
@@ -537,7 +539,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 msg = await client.send_message(cid, text, reply_markup=kb, parse_mode=ParseMode.HTML)
                 save_msg(sess, cid, msg.id)
         if d == 'email':
-            await handle_email_menu(client, sess, cid, _edit)
+            await handle_email_menu(client, sess, cid, _edit, uid)
         elif d == 'email_new':
             await handle_email_new(client, sess, cid, _edit, uid)
         elif d == 'email_list':
@@ -924,9 +926,12 @@ def email_kb() -> InlineKeyboardMarkup:
     ])
 
 # ── Email: handlers ────────────────────────────────────────────────────────────
-async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn):
+async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     if sess.email_address:
         addr = sess.email_address
+        # Auto-resume polling after bot restart if session_id is loaded but no task running
+        if sess.email_session and uid not in _polling_tasks:
+            start_email_polling(client, uid, cid)
         kb = mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
             [ikb('✉️ Email ថ្មី', 'email_new')],
@@ -1049,6 +1054,37 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
     if not result:
         await m.edit_text('❌ <b>Restore Key មិនត្រឹមត្រូវ ឬ Email បានផុតកំណត់ហើយ។</b>',
                           reply_markup=email_kb(), parse_mode=ParseMode.HTML)
+        sess.state = S_EMAIL; return
+    # Email is still active on Dropmail — resume existing session from disk
+    if result.get('already_in_use'):
+        saved = _load_email_sessions().get(str(uid))
+        if saved and saved.get('session_id') and saved.get('email') == addr:
+            sess.email_session = saved['session_id']
+            sess.email_address = saved['email']
+            sess.email_addr_id = saved.get('address_id')
+            sess.email_restore = saved.get('restore_key', key)
+            sess.email_last_id = None
+            _history_add(uid, addr)
+            if uid not in _polling_tasks:
+                start_email_polling(client, uid, cid)
+            await m.edit_text(
+                f'✅ <b>Email ស្ថិតក្នុងស្ថានភាពប្រើប្រាស់ — Resume ស្វ័យប្រវត្តិ!</b>\n\n'
+                f'📋 <code>{addr}</code>\n'
+                f'🔑 <b>Restore Key:</b> <code>{sess.email_restore}</code>',
+                reply_markup=mkb([
+                    [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
+                    [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
+                    [ikb('✉️ Email ថ្មី', 'email_new')],
+                    [ikb('📋 បញ្ជី Email', 'email_list')],
+                    [InlineKeyboardButton('Back', callback_data='home',
+                                          icon_custom_emoji_id='5877629862306385808')],
+                ]),
+                parse_mode=ParseMode.HTML)
+        else:
+            await m.edit_text(
+                '⚠️ <b>Email នៅ active ប៉ុន្តែរកមិនឃើញ session ក្នុង bot ទេ។</b>\n\n'
+                'ចុច ✉️ Email ថ្មី ដើម្បីចាប់ផ្ដើម session ថ្មី។',
+                reply_markup=email_kb(), parse_mode=ParseMode.HTML)
         sess.state = S_EMAIL; return
     sess.email_session = result['session_id']
     sess.email_address = result['email']

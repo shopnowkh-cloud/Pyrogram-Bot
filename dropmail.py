@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import os
+import logging
 import requests
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 def _get_url():
     token = os.environ.get("DROPMAIL_API_TOKEN", "")
@@ -41,6 +44,7 @@ def restore_session(mail_address: str, restore_key: str) -> Optional[dict]:
     data = _gql('mutation { introduceSession(input: { withAddress: false }) { id } }')
     new_id = (data.get("data", {}).get("introduceSession") or {}).get("id")
     if not new_id:
+        logger.warning(f'restore_session: could not create blank session')
         return None
     r = _gql("""
     mutation Restore($mailAddress: String!, $restoreKey: String!, $sessionId: ID!) {
@@ -49,11 +53,24 @@ def restore_session(mail_address: str, restore_key: str) -> Optional[dict]:
         }
     }
     """, {"mailAddress": mail_address, "restoreKey": restore_key, "sessionId": new_id})
+
+    errors = r.get("errors") or []
+    for e in errors:
+        code = (e.get("extensions") or {}).get("code", "")
+        msg  = e.get("message", "")
+        logger.warning(f'restore_session error: code={code} msg={msg}')
+        if msg == "already_in_use" or code == "already_in_use":
+            return {"already_in_use": True}
+
     addr = r.get("data", {}).get("restoreAddress")
     if not addr:
         return None
-    return {"session_id": new_id, "email": addr.get("address"),
-            "address_id": addr.get("id"), "restore_key": addr.get("restoreKey")}
+    return {
+        "session_id":  new_id,
+        "email":       addr.get("address"),
+        "address_id":  addr.get("id"),
+        "restore_key": addr.get("restoreKey"),
+    }
 
 def delete_address(address_id: str) -> bool:
     try:
