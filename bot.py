@@ -62,8 +62,9 @@ S_QR_CREATE  = 6
 S_QR_SCAN    = 7
 S_PDF_RENAME = 8
 S_GOLD       = 9
-S_RMBG       = 10
-S_EMAIL      = 11
+S_RMBG           = 10
+S_EMAIL          = 11
+S_EMAIL_RESTORE  = 12
 
 # ── Session ────────────────────────────────────────────────────────────────────
 @dataclass
@@ -491,7 +492,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         sess.state = S_QR; return
 
     # ── email ───────────────────────────────────────────────────────────────
-    if d in ('email', 'email_new', 'email_list', 'email_delete') or d.startswith('email_del_'):
+    if d in ('email', 'email_new', 'email_list', 'email_delete', 'email_restore') or d.startswith('email_del_'):
         async def _edit(text, kb=None):
             try:
                 await query.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
@@ -506,6 +507,14 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await handle_email_list(client, sess, cid, _edit, uid)
         elif d == 'email_delete':
             await handle_email_delete(client, sess, cid, _edit, uid)
+        elif d == 'email_restore':
+            await _edit(
+                '🔄 <b>Restore Email</b>\n\n'
+                'ផ្ញើ <b>Address</b> និង <b>Restore Key</b> ក្នុងបន្ទាត់តែមួយ៖\n\n'
+                '<code>address@domain.com restore_key_here</code>',
+                mkb([[InlineKeyboardButton('Back', callback_data='email',
+                                           icon_custom_emoji_id='5877629862306385808')]]))
+            sess.state = S_EMAIL_RESTORE; return
         elif d.startswith('email_del_'):
             await handle_email_delete_one(client, sess, cid, _edit, uid, d[len('email_del_'):])
         sess.state = S_EMAIL; return
@@ -548,10 +557,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
 async def text_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
-    if   sess.state == S_STYLE:      await handle_style(client, message, sess)
-    elif sess.state == S_QR:         await handle_qr_create(client, message, sess)
-    elif sess.state == S_PDF_RENAME: await handle_pdf_rename(client, message, sess)
-    else:                            await handle_fallback(client, message, sess)
+    if   sess.state == S_STYLE:          await handle_style(client, message, sess)
+    elif sess.state == S_QR:             await handle_qr_create(client, message, sess)
+    elif sess.state == S_PDF_RENAME:     await handle_pdf_rename(client, message, sess)
+    elif sess.state == S_EMAIL_RESTORE:  await handle_email_restore_input(client, message, sess)
+    else:                                await handle_fallback(client, message, sess)
 
 
 # ── Photo / document dispatcher ────────────────────────────────────────────────
@@ -869,6 +879,7 @@ def stop_email_polling(uid: int):
 def email_kb() -> InlineKeyboardMarkup:
     return mkb([
         [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
+        [ikb('🔄 Restore Email', 'email_restore')],
         [InlineKeyboardButton('Back', callback_data='home',
                               icon_custom_emoji_id='5877629862306385808')],
     ])
@@ -969,6 +980,54 @@ async def handle_email_delete_one(client: Client, sess: UserSession, cid: int,
         sess.email_last_id = None
     _history_remove(uid, addr)
     await handle_email_list(client, sess, cid, edit_fn, uid)
+
+async def handle_email_restore_input(client: Client, message: Message, sess: UserSession):
+    cid  = message.chat.id
+    uid  = message.from_user.id
+    text = message.text.strip()
+    await safe_delete(client, cid, message.id)
+    parts = text.split()
+    if len(parts) != 2:
+        m = await client.send_message(
+            cid,
+            '⚠️ <b>ទម្រង់មិនត្រឹមត្រូវ!</b>\n\n'
+            'ផ្ញើ: <code>address@domain.com restore_key</code>',
+            reply_markup=mkb([[InlineKeyboardButton('Back', callback_data='email',
+                                                     icon_custom_emoji_id='5877629862306385808')]]),
+            parse_mode=ParseMode.HTML)
+        save_msg(sess, cid, m.id); return
+    addr, key = parts[0], parts[1]
+    m = await client.send_message(cid, '⏳ <b>កំពុង Restore...</b>', parse_mode=ParseMode.HTML)
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(None, dropmail.restore_session, addr, key)
+    except Exception as e:
+        await m.edit_text(f'❌ <b>Restore មិនបាន:</b> {e}',
+                          reply_markup=email_kb(), parse_mode=ParseMode.HTML)
+        sess.state = S_EMAIL; return
+    if not result:
+        await m.edit_text('❌ <b>Restore Key មិនត្រឹមត្រូវ ឬ Email បានផុតកំណត់ហើយ។</b>',
+                          reply_markup=email_kb(), parse_mode=ParseMode.HTML)
+        sess.state = S_EMAIL; return
+    sess.email_session = result['session_id']
+    sess.email_address = result['email']
+    sess.email_addr_id = result.get('address_id')
+    sess.email_restore = result.get('restore_key', key)
+    sess.email_last_id = None
+    _history_add(uid, result['email'])
+    start_email_polling(client, uid, cid)
+    await m.edit_text(
+        f'✅ <b>Restore បានជោគជ័យ!</b>\n\n'
+        f'🔑 <b>Restore Key:</b>\n<code>{sess.email_restore}</code>',
+        reply_markup=mkb([
+            [InlineKeyboardButton(f'📋 {result["email"]}', copy_text=result['email'])],
+            [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
+            [ikb('✉️ Email ថ្មី', 'email_new'), ikb('📋 បញ្ជី Email', 'email_list')],
+            [InlineKeyboardButton('Back', callback_data='home',
+                                  icon_custom_emoji_id='5877629862306385808')],
+        ]),
+        parse_mode=ParseMode.HTML)
+    sess.state = S_EMAIL
 
 async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     if not sess.email_address and not sess.email_addr_id:
