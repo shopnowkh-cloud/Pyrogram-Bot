@@ -103,13 +103,8 @@ IK_DOC = mkb([
     [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
     [ikb('🏠 ម៉ឺនុយមេ', 'home')],
 ])
-IK_QR = mkb([
-    [ikb('🔳 បង្កើត QR', 'qr_create'), ikb('🔍 Scan QR', 'qr_scan')],
-    [ikb('🏠 ម៉ឺនុយមេ', 'home')],
-])
-IK_PDF_DONE    = mkb([[ikb('🖼️ PDF ថ្មី', 'photo_pdf'), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
-IK_QR_CR_DONE  = mkb([[ikb('🔳 QR ថ្មី', 'qr_create'), ikb('🔍 Scan QR', 'qr_scan')], [ikb('🏠 ម៉ឺនុយមេ', 'home')]])
-IK_QR_SC_DONE  = mkb([[ikb('🔍 Scan ថ្មី', 'qr_scan'), ikb('🔳 បង្កើត QR', 'qr_create')], [ikb('🏠 ម៉ឺនុយមេ', 'home')]])
+IK_PDF_DONE = mkb([[ikb('🖼️ PDF ថ្មី', 'photo_pdf'), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
+IK_QR_DONE  = mkb([[ikb('🏠 ម៉ឺនុយមេ', 'home')]])
 
 
 def ik_img_done(fmt: str) -> InlineKeyboardMarkup:
@@ -429,11 +424,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     # ── cancel_qr ───────────────────────────────────────────────────────────
     if d == 'cancel_qr':
-        await edit(
+        await edit_or_send(client, sess, cid,
             '📷 <b>QR Code</b>\n\n'
-            '🔳  បង្កើត QR — បង្កើត QR Code HD 2048×2048\n'
-            '🔍  Scan QR — Decode Link ឬ Text ចេញពី QR\n\n'
-            '👇 <b>ចុចជ្រើសរើស:</b>', IK_QR)
+            '✏️  ផ្ញើ <b>Text</b> → បង្កើត QR Code\n'
+            '🖼️  ផ្ញើ <b>រូបភាព</b> → Scan QR Code', cancel_kb('cancel_main'))
         sess.state = S_QR; return
 
     # ── photo_pdf ───────────────────────────────────────────────────────────
@@ -480,30 +474,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     # ── qr menu ─────────────────────────────────────────────────────────────
     if d == 'qr':
-        await edit(
+        await edit_or_send(client, sess, cid,
             '📷 <b>QR Code</b>\n\n'
-            '🔳  បង្កើត QR — បង្កើត QR Code HD 2048×2048\n'
-            '🔍  Scan QR — Decode Link ឬ Text ចេញពី QR\n\n'
-            '👇 <b>ចុចជ្រើសរើស:</b>', IK_QR)
+            '✏️  ផ្ញើ <b>Text</b> → បង្កើត QR Code\n'
+            '🖼️  ផ្ញើ <b>រូបភាព</b> → Scan QR Code', cancel_kb('cancel_main'))
         sess.state = S_QR; return
-
-    # ── qr_create ───────────────────────────────────────────────────────────
-    if d == 'qr_create':
-        await edit_or_send(client, sess, cid,
-            '🔳 <b>បង្កើត QR Code</b>\n\n'
-            'បង្កើត QR Code HD ទំហំ <b>2048×2048</b>\n'
-            'អាចប្រើជាមួយ Link · Text · ព័ត៌មានគ្រប់ប្រភេទ\n\n'
-            '✏️ <b>វាយ Link ឬ Text ខាងក្រោម:</b>', cancel_kb('cancel_qr'))
-        sess.state = S_QR_CREATE; return
-
-    # ── qr_scan ─────────────────────────────────────────────────────────────
-    if d == 'qr_scan':
-        await edit_or_send(client, sess, cid,
-            '🔍 <b>Scan QR Code</b>\n\n'
-            'Upload រូបភាពដែលមាន QR Code\n'
-            'Bot នឹង Decode យក <b>Link</b> ឬ <b>Text</b> ឱ្យអ្នក\n\n'
-            '📤 <b>Upload រូបភាព QR:</b>', cancel_kb('cancel_qr'))
-        sess.state = S_QR_SCAN; return
 
     # ── rmbg ────────────────────────────────────────────────────────────────
     if d == 'rmbg':
@@ -544,7 +519,7 @@ async def text_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
     if   sess.state == S_STYLE:      await handle_style(client, message, sess)
-    elif sess.state == S_QR_CREATE:  await handle_qr_create(client, message, sess)
+    elif sess.state == S_QR:         await handle_qr_create(client, message, sess)
     elif sess.state == S_PDF_RENAME: await handle_pdf_rename(client, message, sess)
     else:                            await handle_fallback(client, message, sess)
 
@@ -556,7 +531,7 @@ async def media_handler(client: Client, message: Message):
     sess = get_sess(uid)
     if   sess.state == S_PDF:     await handle_pdf_photo(client, message, sess)
     elif sess.state == S_PDF2IMG: await handle_pdf2img(client, message, sess)
-    elif sess.state == S_QR_SCAN: await handle_qr_scan(client, message, sess)
+    elif sess.state == S_QR:      await handle_qr_scan(client, message, sess)
     elif sess.state == S_RMBG:    await handle_rmbg(client, message, sess)
     else:                         await handle_fallback(client, message, sess)
 
@@ -684,12 +659,14 @@ async def handle_qr_create(client: Client, message: Message, sess: UserSession):
         await safe_delete(client, cid, loading.id)
         if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
         await safe_delete(client, cid, message.id)
-        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_QR_CR_DONE, parse_mode=ParseMode.HTML)
+        m = await client.send_message(cid,
+            '✅ <b>QR Code រួចហើយ!</b>\n\nផ្ញើ Text ឬ រូបភាព QR ទៀត ឬ ចុច 🏠',
+            reply_markup=IK_QR_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id)
     except Exception as e:
         logger.error(f'qr_create: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_qr'))
-    sess.state = S_MAIN
+        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_main'))
+    sess.state = S_QR
 
 # ── QR scan ────────────────────────────────────────────────────────────────────
 async def handle_qr_scan(client: Client, message: Message, sess: UserSession):
@@ -703,18 +680,20 @@ async def handle_qr_scan(client: Client, message: Message, sess: UserSession):
         raw     = await download_file(client, p.file_id if p else dc.file_id)
         results = await loop.run_in_executor(None, scan_qr, raw)
         if not results:
-            await edit_or_send(client, sess, cid, '❌ <b>រកមិនឃើញ QR Code!</b>\nសូម Upload រូបភាពច្បាស់ជាង', cancel_kb('cancel_qr'))
-            sess.state = S_QR_SCAN; return
+            await edit_or_send(client, sess, cid, '❌ <b>រកមិនឃើញ QR Code!</b>\nសូម Upload រូបភាពច្បាស់ជាង', cancel_kb('cancel_main'))
+            sess.state = S_QR; return
         lines = '\n\n'.join(f'📌 <b>លទ្ធផលទី {i+1}:</b>\n<code>{r}</code>' for i,r in enumerate(results))
         if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
         await safe_delete(client, cid, message.id)
         await client.send_message(cid, f'✅ <b>Scan QR ជោគជ័យ!</b> ({len(results)} QR)\n━━━━━━━━━\n{lines}', parse_mode=ParseMode.HTML)
-        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_QR_SC_DONE, parse_mode=ParseMode.HTML)
+        m = await client.send_message(cid,
+            'ផ្ញើ Text ឬ រូបភាព QR ទៀត ឬ ចុច 🏠',
+            reply_markup=IK_QR_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id)
     except Exception as e:
         logger.error(f'qr_scan: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_qr'))
-    sess.state = S_MAIN
+        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_main'))
+    sess.state = S_QR
 
 # ── PDF rename ─────────────────────────────────────────────────────────────────
 async def handle_pdf_rename(client: Client, message: Message, sess: UserSession):
