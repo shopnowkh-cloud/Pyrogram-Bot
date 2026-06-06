@@ -6,7 +6,10 @@ import logging
 import asyncio
 import tempfile
 
+import json
 import httpx
+import requests
+import dropmail
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -60,16 +63,22 @@ S_QR_SCAN    = 7
 S_PDF_RENAME = 8
 S_GOLD       = 9
 S_RMBG       = 10
+S_EMAIL      = 11
 
 # ── Session ────────────────────────────────────────────────────────────────────
 @dataclass
 class UserSession:
-    state:        int            = S_MAIN
-    mid:          Optional[int]  = None
-    cid:          Optional[int]  = None
-    pdf_photos:   list           = field(default_factory=list)
-    pdf_name:     Optional[str]  = None
-    pdf2img_fmt:  Optional[str]  = None
+    state:           int            = S_MAIN
+    mid:             Optional[int]  = None
+    cid:             Optional[int]  = None
+    pdf_photos:      list           = field(default_factory=list)
+    pdf_name:        Optional[str]  = None
+    pdf2img_fmt:     Optional[str]  = None
+    email_session:   Optional[str]  = None
+    email_address:   Optional[str]  = None
+    email_addr_id:   Optional[str]  = None
+    email_restore:   Optional[str]  = None
+    email_last_id:   Optional[str]  = None
 
 
 _sessions: dict[int, UserSession] = {}
@@ -254,7 +263,8 @@ def main_kb() -> InlineKeyboardMarkup:
          InlineKeyboardButton('PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
         [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003'),
          InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
-        [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
+        [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935'),
+         InlineKeyboardButton('📧 Email', callback_data='email')],
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
@@ -479,6 +489,26 @@ async def cb_handler(client: Client, query: CallbackQuery):
             '✏️  ផ្ញើ <b>Text</b> → បង្កើត QR Code\n'
             '🖼️  ផ្ញើ <b>រូបភាព</b> → Scan QR Code', cancel_kb('cancel_main'))
         sess.state = S_QR; return
+
+    # ── email ───────────────────────────────────────────────────────────────
+    if d in ('email', 'email_new', 'email_inbox', 'email_list', 'email_delete'):
+        async def _edit(text, kb=None):
+            try:
+                await query.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+            except Exception:
+                msg = await client.send_message(cid, text, reply_markup=kb, parse_mode=ParseMode.HTML)
+                save_msg(sess, cid, msg.id)
+        if d == 'email':
+            await handle_email_menu(client, sess, cid, _edit)
+        elif d == 'email_new':
+            await handle_email_new(client, sess, cid, _edit)
+        elif d == 'email_inbox':
+            await handle_email_inbox(client, sess, cid, _edit)
+        elif d == 'email_list':
+            await handle_email_list(client, sess, cid, _edit)
+        elif d == 'email_delete':
+            await handle_email_delete(client, sess, cid, _edit)
+        sess.state = S_EMAIL; return
 
     # ── rmbg ────────────────────────────────────────────────────────────────
     if d == 'rmbg':
@@ -755,6 +785,134 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         logger.error(f'rmbg: {e}')
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_main'))
         sess.state = S_RMBG
+
+# ── Email keyboards ────────────────────────────────────────────────────────────
+def email_main_kb() -> InlineKeyboardMarkup:
+    return mkb([
+        [ikb('✉️ Email ថ្មី', 'email_new'),    ikb('📥 ពិនិត្យ Inbox', 'email_inbox')],
+        [ikb('📋 បញ្ជី Email', 'email_list'),  ikb('🗑 លុប Email', 'email_delete')],
+        [InlineKeyboardButton('Back', callback_data='home', icon_custom_emoji_id='5877629862306385808')],
+    ])
+
+def email_view_kb() -> InlineKeyboardMarkup:
+    return mkb([
+        [ikb('🔄 ផ្ទុកឡើងវិញ', 'email_inbox'), ikb('✉️ Email ថ្មី', 'email_new')],
+        [ikb('🗑 លុប Email', 'email_delete')],
+        [InlineKeyboardButton('Back', callback_data='email', icon_custom_emoji_id='5877629862306385808')],
+    ])
+
+# ── Email handlers ──────────────────────────────────────────────────────────────
+async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn):
+    addr = sess.email_address
+    if addr:
+        text = (
+            f'📧 <b>Email បណ្ដោះអាសន្ន</b>\n\n'
+            f'<code>{addr}</code>\n\n'
+            f'👆 ចុចលើ Email ដើម្បីចម្លង'
+        )
+    else:
+        text = (
+            '📧 <b>Email បណ្ដោះអាសន្ន</b>\n\n'
+            'បង្កើត Email ជ្រើសរើស Email ថ្មី\n'
+            'ទទួល Email ដោយស្វ័យប្រវត្តិ\n\n'
+            '👇 ចុចបង្កើតដើម្បីចាប់ផ្ដើម'
+        )
+    await edit_fn(text, email_main_kb())
+
+async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn):
+    await edit_fn('⏳ <b>កំពុងបង្កើត Email...</b>')
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(None, dropmail.create_session)
+    except Exception as e:
+        await edit_fn(f'❌ <b>បង្កើតមិនបាន:</b> {e}', email_main_kb())
+        return
+    if not result:
+        await edit_fn('❌ <b>មិនអាចបង្កើតបានទេ។ ព្យាយាមម្ដងទៀត។</b>', email_main_kb())
+        return
+    sess.email_session  = result['session_id']
+    sess.email_address  = result['email']
+    sess.email_addr_id  = result['address_id']
+    sess.email_restore  = result['restore_key']
+    sess.email_last_id  = None
+    await edit_fn(
+        f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
+        f'<code>{result["email"]}</code>\n\n'
+        f'👆 ចុចចម្លង — ខ្ញុំនឹងជូនដំណឹងនៅពេលមាន Email ចូល',
+        email_view_kb()
+    )
+
+async def handle_email_inbox(client: Client, sess: UserSession, cid: int, edit_fn):
+    if not sess.email_session or not sess.email_address:
+        await edit_fn('❌ <b>មិនទាន់មាន Email ទេ។</b>\nចុច ✉️ Email ថ្មី ដើម្បីបង្កើត។', email_main_kb())
+        return
+    await edit_fn('⏳ <b>កំពុងពិនិត្យ Inbox...</b>')
+    loop = asyncio.get_running_loop()
+    try:
+        mails = await loop.run_in_executor(None, dropmail.get_new_mails, sess.email_session, None)
+    except Exception as e:
+        await edit_fn(f'❌ <b>កំហុស:</b> {e}', email_view_kb())
+        return
+    if mails is None:
+        # session expired — try restore
+        try:
+            restored = await loop.run_in_executor(None, dropmail.restore_session, sess.email_address, sess.email_restore)
+            if restored:
+                sess.email_session = restored['session_id']
+                sess.email_addr_id = restored.get('address_id')
+                sess.email_restore = restored.get('restore_key')
+                mails = await loop.run_in_executor(None, dropmail.get_new_mails, sess.email_session, None)
+        except Exception:
+            mails = []
+    if not mails:
+        text = (
+            f'📭 <b>ប្រអប់ទទេ</b>\n\n'
+            f'📧 <code>{sess.email_address}</code>\n\n'
+            f'មិនទាន់មាន Email ចូលទេ។'
+        )
+    else:
+        text = f'📬 <b>{len(mails)} Email</b>\n📧 <code>{sess.email_address}</code>\n\n'
+        for i, mail in enumerate(mails[-5:], 1):
+            subj    = mail.get('headerSubject') or '(គ្មានប្រធានបទ)'
+            sender  = mail.get('fromAddr') or 'unknown'
+            body    = (mail.get('text') or '').strip()
+            preview = body[:200] + '…' if len(body) > 200 else body
+            text += (
+                f'━━━━━━━━━━━━━━━━━━\n'
+                f'<b>#{i} {subj}</b>\n'
+                f'ពី: <code>{sender}</code>\n'
+                f'{preview or "<i>(ទទេ)</i>"}\n\n'
+            )
+        if mails:
+            sess.email_last_id = mails[-1].get('id')
+    await edit_fn(text, email_view_kb())
+
+async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn):
+    if not sess.email_address:
+        await edit_fn('❌ <b>មិនទាន់មាន Email ទេ។</b>', email_main_kb())
+        return
+    await edit_fn(
+        f'📋 <b>Email បច្ចុប្បន្ន</b>\n\n'
+        f'<code>{sess.email_address}</code>',
+        email_view_kb()
+    )
+
+async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_fn):
+    if not sess.email_addr_id and not sess.email_address:
+        await edit_fn('❌ <b>មិនមាន Email ដែលត្រូវលុបទេ។</b>', email_main_kb())
+        return
+    loop = asyncio.get_running_loop()
+    if sess.email_addr_id:
+        await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id)
+    sess.email_session = None
+    sess.email_address = None
+    sess.email_addr_id = None
+    sess.email_restore = None
+    sess.email_last_id = None
+    await edit_fn(
+        '🗑 <b>Email ត្រូវបានលុបចោលហើយ។</b>\n\nចុច ✉️ Email ថ្មី ដើម្បីបង្កើតថ្មី។',
+        email_main_kb()
+    )
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
 async def handle_fallback(client: Client, message: Message, sess: UserSession):
