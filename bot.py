@@ -24,6 +24,37 @@ from pyrogram.types import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s|%(levelname)s|%(message)s")
 logger = logging.getLogger(__name__)
 
+# ── Email sessions (persisted to file — survives bot restart) ──────────────────
+EMAIL_SESSIONS_FILE = 'email_sessions.json'
+
+def _load_email_sessions() -> dict:
+    try:
+        with open(EMAIL_SESSIONS_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_email_sessions(data: dict):
+    try:
+        with open(EMAIL_SESSIONS_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.warning(f'email_sessions save: {e}')
+
+def _email_sess_persist(uid: int, sess) -> None:
+    data = _load_email_sessions()
+    data[str(uid)] = {
+        'email':       sess.email_address,
+        'restore_key': sess.email_restore,
+        'address_id':  sess.email_addr_id,
+    }
+    _save_email_sessions(data)
+
+def _email_sess_clear(uid: int) -> None:
+    data = _load_email_sessions()
+    data.pop(str(uid), None)
+    _save_email_sessions(data)
+
 # ── Remove-bg stats (persisted to file) ────────────────────────────────────────
 STATS_FILE = 'rmbg_stats.json'
 
@@ -86,7 +117,13 @@ _sessions: dict[int, UserSession] = {}
 
 def get_sess(uid: int) -> UserSession:
     if uid not in _sessions:
-        _sessions[uid] = UserSession()
+        sess = UserSession()
+        saved = _load_email_sessions().get(str(uid))
+        if saved and saved.get('email') and saved.get('restore_key'):
+            sess.email_address = saved['email']
+            sess.email_restore = saved['restore_key']
+            sess.email_addr_id = saved.get('address_id')
+        _sessions[uid] = sess
     return _sessions[uid]
 
 def reset_sess(uid: int) -> UserSession:
@@ -837,6 +874,7 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                     sess.email_session = restored['session_id']
                     sess.email_addr_id = restored.get('address_id')
                     sess.email_restore = restored.get('restore_key')
+                    _email_sess_persist(uid, sess)
                     mails = await loop.run_in_executor(
                         None, dropmail.get_new_mails, sess.email_session, sess.email_last_id
                     )
@@ -916,6 +954,7 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     sess.email_restore = result['restore_key']
     sess.email_last_id = None
     _history_add(uid, result['email'])
+    _email_sess_persist(uid, sess)
     start_email_polling(client, uid, cid)
     addr    = result['email']
     restore = result['restore_key']
@@ -976,6 +1015,7 @@ async def handle_email_delete_one(client: Client, sess: UserSession, cid: int,
         sess.email_addr_id = None
         sess.email_restore = None
         sess.email_last_id = None
+        _email_sess_clear(uid)
     _history_remove(uid, addr)
     await handle_email_list(client, sess, cid, edit_fn, uid)
 
@@ -1013,6 +1053,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
     sess.email_restore = result.get('restore_key', key)
     sess.email_last_id = None
     _history_add(uid, result['email'])
+    _email_sess_persist(uid, sess)
     start_email_polling(client, uid, cid)
     await m.edit_text(
         f'✅ <b>Restore បានជោគជ័យ!</b>\n\n'
@@ -1045,6 +1086,7 @@ async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_
     sess.email_addr_id = None
     sess.email_restore = None
     sess.email_last_id = None
+    _email_sess_clear(uid)
     await edit_fn(
         '🗑 <b>Email ត្រូវបានលុបចោលហើយ។</b>\n\nចុច ✉️ Email ថ្មី ដើម្បីបង្កើតថ្មី។',
         email_kb()
