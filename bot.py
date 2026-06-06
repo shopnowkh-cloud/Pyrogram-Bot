@@ -258,7 +258,7 @@ async def safe_delete(client: Client, cid: int, mid: int):
 _CANCEL_EMOJI = '5877629862306385808'
 _API = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}"
 
-_STYLE_EMOJI = '5298959379393962810'
+_STYLE_EMOJI = '5197269100878907942'
 
 def main_kb() -> list:
     return [
