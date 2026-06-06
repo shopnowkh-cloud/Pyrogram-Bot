@@ -273,7 +273,7 @@ def main_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
         [InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
         [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
-        [InlineKeyboardButton('📧 Email', callback_data='email')],
+        [InlineKeyboardButton('Email Temporary', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
