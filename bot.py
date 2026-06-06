@@ -910,8 +910,7 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     start_email_polling(client, uid, cid)
     addr = result['email']
     await edit_fn(
-        f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
-        f'🔔 Bot ជូន Email ចូលស្វ័យប្រវត្តិ',
+        f'✅ <b>Email ថ្មីបានបង្កើត!</b>',
         mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
             [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
