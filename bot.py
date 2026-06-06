@@ -1043,7 +1043,7 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
         f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
         f'🔑 <b>Restore Key:</b>\n<code>{addr}</code>\n<code>{restore}</code>',
         mkb([
-            [InlineKeyboardButton('Back', callback_data='home',
+            [InlineKeyboardButton('Back', callback_data='email',
                                   icon_custom_emoji_id='5877629862306385808')],
         ])
     )
