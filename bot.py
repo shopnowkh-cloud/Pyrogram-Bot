@@ -1115,14 +1115,12 @@ async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn
     ]
     rows = []
     for addr in reversed(history):
-        rows.append([InlineKeyboardButton(addr, copy_text=addr)])
-        rows.append([ikb('🗑 លុប', f'email_del_{addr}')])
+        rows.append([ikb(f'🗑 {addr}', f'email_del_{addr}')])
     rows.append([InlineKeyboardButton('Back', callback_data='email',
                                       icon_custom_emoji_id='5877629862306385808')])
     await edit_fn(
         f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n'
-        + '\n'.join(lines)
-        + '\n\n👆 ចុច address ចម្លង · ចុច 🗑 ដើម្បីលុប',
+        + '\n'.join(lines),
         mkb(rows)
     )
 
