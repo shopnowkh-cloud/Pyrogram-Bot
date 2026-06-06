@@ -881,21 +881,41 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                         None, dropmail.get_new_mails, sess.email_session, sess.email_last_id
                     )
                 else:
-                    # Address stuck or expired — stop polling and notify user
-                    logger.warning(f'email_poll uid={uid}: session expired, cannot restore')
+                    # already_in_use — try find_session_by_address to recover live session
+                    live = None
                     try:
-                        await client.send_message(
-                            cid,
-                            f'⚠️ <b>Email Session ផុតកំណត់</b>\n\n'
-                            f'📋 <code>{sess.email_address}</code>\n\n'
-                            f'Session នេះបានផុតកំណត់ហើយ។ '
-                            f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
-                            reply_markup=email_kb(),
-                            parse_mode=ParseMode.HTML,
+                        live = await loop.run_in_executor(
+                            None, dropmail.find_session_by_address, sess.email_address
                         )
                     except Exception:
                         pass
-                    break
+                    if live:
+                        sess.email_session = live['session_id']
+                        sess.email_addr_id = live.get('address_id')
+                        if live.get('restore_key'):
+                            sess.email_restore = live['restore_key']
+                        _email_sess_persist(uid, sess)
+                        logger.info(f'email_poll uid={uid}: recovered session via find_session_by_address')
+                        mails = await loop.run_in_executor(
+                            None, dropmail.get_new_mails, sess.email_session, sess.email_last_id
+                        )
+                    else:
+                        # Truly expired — stop polling and notify user
+                        logger.warning(f'email_poll uid={uid}: session expired, cannot recover')
+                        _email_sess_clear(uid)
+                        try:
+                            await client.send_message(
+                                cid,
+                                f'⚠️ <b>Email Session ផុតកំណត់</b>\n\n'
+                                f'📋 <code>{sess.email_address}</code>\n\n'
+                                f'Session នេះបានផុតកំណត់ហើយ។ '
+                                f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
+                                reply_markup=email_kb(),
+                                parse_mode=ParseMode.HTML,
+                            )
+                        except Exception:
+                            pass
+                        break
             except Exception as e:
                 logger.warning(f'email_poll restore uid={uid}: {e}')
                 mails = []
@@ -946,9 +966,32 @@ def email_kb() -> InlineKeyboardMarkup:
 async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     if sess.email_address:
         addr = sess.email_address
-        # Auto-resume polling after bot restart if session_id is loaded but no task running
-        if sess.email_session and uid not in _polling_tasks:
-            start_email_polling(client, uid, cid)
+        # Auto-resume polling after bot restart — verify session still alive first
+        if uid not in _polling_tasks:
+            loop = asyncio.get_running_loop()
+            live = None
+            if sess.email_session:
+                try:
+                    live = await loop.run_in_executor(
+                        None, dropmail.check_session, sess.email_session
+                    )
+                except Exception:
+                    live = None
+            # Fallback: search all active sessions for this address
+            if not live:
+                try:
+                    live = await loop.run_in_executor(
+                        None, dropmail.find_session_by_address, addr
+                    )
+                except Exception:
+                    live = None
+            if live:
+                sess.email_session = live['session_id']
+                sess.email_addr_id = live.get('address_id') or sess.email_addr_id
+                if live.get('restore_key'):
+                    sess.email_restore = live['restore_key']
+                _email_sess_persist(uid, sess)
+                start_email_polling(client, uid, cid)
         kb = mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
             [ikb('✉️ Email ថ្មី', 'email_new')],
@@ -1074,52 +1117,56 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
         sess.state = S_EMAIL; return
     # Email is still active on Dropmail — try to resume existing session from disk
     if result.get('already_in_use'):
+        # Address still active — find the live session via check_session or find_session_by_address
+        live = None
         saved = _load_email_sessions().get(str(uid))
         if saved and saved.get('session_id') and saved.get('email') == addr:
-            old_sid = saved['session_id']
-            # Verify the saved session is still alive on Dropmail
             try:
-                probe = await loop.run_in_executor(
-                    None, dropmail.get_new_mails, old_sid, None
+                live = await loop.run_in_executor(
+                    None, dropmail.check_session, saved['session_id']
                 )
             except Exception:
-                probe = None
-            if probe is not None:
-                # Session still valid — resume it
-                sess.email_session = old_sid
-                sess.email_address = saved['email']
-                sess.email_addr_id = saved.get('address_id')
-                sess.email_restore = saved.get('restore_key', key)
-                sess.email_last_id = None
-                _history_add(uid, addr)
-                if uid not in _polling_tasks:
-                    start_email_polling(client, uid, cid)
-                await m.edit_text(
-                    f'✅ <b>Email Resume ស្វ័យប្រវត្តិ!</b>\n\n'
-                    f'📋 <code>{addr}</code>\n'
-                    f'🔑 <b>Restore Key:</b> <code>{sess.email_restore}</code>',
-                    reply_markup=mkb([
-                        [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
-                        [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
-                        [ikb('✉️ Email ថ្មី', 'email_new')],
-                        [ikb('📋 បញ្ជី Email', 'email_list')],
-                        [InlineKeyboardButton('Back', callback_data='home',
-                                              icon_custom_emoji_id='5877629862306385808')],
-                    ]),
-                    parse_mode=ParseMode.HTML)
-            else:
-                # Saved session also expired — email is gone
-                _email_sess_clear(uid)
-                await m.edit_text(
-                    f'❌ <b>Email Session ផុតកំណត់ហើយ។</b>\n\n'
-                    f'📋 <code>{addr}</code>\n\n'
-                    f'Session នេះបានផុតកំណត់ ហើយ Restore Key ប្រើប្រាស់ម្ដងទៀតមិនបានទេ។\n'
-                    f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
-                    reply_markup=email_kb(), parse_mode=ParseMode.HTML)
-        else:
+                live = None
+        # Fallback: search all active sessions
+        if not live:
+            try:
+                live = await loop.run_in_executor(
+                    None, dropmail.find_session_by_address, addr
+                )
+            except Exception:
+                live = None
+        if live:
+            sess.email_session = live['session_id']
+            sess.email_address = live['email']
+            sess.email_addr_id = live.get('address_id')
+            if live.get('restore_key'):
+                sess.email_restore = live['restore_key']
+            sess.email_last_id = None
+            _history_add(uid, addr)
+            _email_sess_persist(uid, sess)
+            if uid not in _polling_tasks:
+                start_email_polling(client, uid, cid)
             await m.edit_text(
-                '⚠️ <b>Email នៅ active ប៉ុន្តែរកមិនឃើញ session ក្នុង bot ទេ។</b>\n\n'
-                'ចុច ✉️ Email ថ្មី ដើម្បីចាប់ផ្ដើម session ថ្មី។',
+                f'✅ <b>Email Resume ស្វ័យប្រវត្តិ!</b>\n\n'
+                f'📋 <code>{sess.email_address}</code>\n'
+                f'🔑 <b>Restore Key:</b> <code>{sess.email_restore}</code>',
+                reply_markup=mkb([
+                    [InlineKeyboardButton(f'📋 {sess.email_address}', copy_text=sess.email_address)],
+                    [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
+                    [ikb('✉️ Email ថ្មី', 'email_new')],
+                    [ikb('📋 បញ្ជី Email', 'email_list')],
+                    [InlineKeyboardButton('Back', callback_data='home',
+                                          icon_custom_emoji_id='5877629862306385808')],
+                ]),
+                parse_mode=ParseMode.HTML)
+        else:
+            # Session truly gone — clear and tell user
+            _email_sess_clear(uid)
+            await m.edit_text(
+                f'❌ <b>Email Session ផុតកំណត់ហើយ។</b>\n\n'
+                f'📋 <code>{addr}</code>\n\n'
+                f'Session បានផុតកំណត់ ហើយ Restore Key ប្រើបន្ថែមមិនបានទេ។\n'
+                f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
                 reply_markup=email_kb(), parse_mode=ParseMode.HTML)
         sess.state = S_EMAIL; return
     sess.email_session = result['session_id']
