@@ -566,6 +566,17 @@ async def cb_handler(client: Client, query: CallbackQuery):
         sess.state = S_GOLD; return
 
 
+    # ── donate ──────────────────────────────────────────────────────────────
+    if d == 'donate':
+        await edit_or_send(client, sess, cid,
+            '💝 <b>Donate</b>\n\n'
+            'សូមអរគុណចំពោះការគាំទ្រ!\n\n'
+            '💎 <b>TON:</b>\n<code>YOUR_TON_ADDRESS_HERE</code>\n\n'
+            '☕ <b>តម្លៃ Coffee មួយកែវ</b> គឺជាការជួយ Bot នេះឱ្យដំណើរការបន្ត 🙏',
+            mkb([[InlineKeyboardButton('Back', callback_data='home',
+                                       icon_custom_emoji_id='5877629862306385808')]]))
+        sess.state = S_MAIN; return
+
     # ── unknown → home ──────────────────────────────────────────────────────
     await edit_or_send(client, sess, cid, HOME_TEXT, main_kb())
     sess.state = S_MAIN
