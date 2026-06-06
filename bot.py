@@ -258,13 +258,13 @@ def main_kb() -> InlineKeyboardMarkup:
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
-    return mkb([[ikb('◀️ Back', data)]])
+    return mkb([[InlineKeyboardButton('Back', callback_data=data, icon_custom_emoji_id='5877629862306385808')]])
 
 def pdf_kb(n: int, name=None) -> InlineKeyboardMarkup:
     lbl = f'✅ បង្កើត PDF ({n} រូប)' + (f' 📄 "{name}"' if name else '')
     return mkb([
         [ikb(lbl, 'pdf_build'), ikb('✏️ ប្តូរឈ្មោះ', 'pdf_rename')],
-        [ikb('◀️ Back', 'doc')],
+        [InlineKeyboardButton('Back', callback_data='doc', icon_custom_emoji_id='5877629862306385808')],
     ])
 
 # ── PDF: images → PDF ──────────────────────────────────────────────────────────
