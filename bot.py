@@ -1000,7 +1000,7 @@ def _load_email_sessions():
 
 
 # ── Email: polling loop ────────────────────────────────────────────────────────
-async def _email_poll_loop(client: Client, uid: int, cid: int):
+async def _email_poll_loop(client: Client, uid: int, cid: int, biz_conn_id: str = None):
     no_sess_retries = 0
     while True:
         await asyncio.sleep(POLL_INTERVAL)
@@ -1054,14 +1054,16 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                         sess.email_addr_id = None
                         sess.email_restore = None
                         try:
+                            _ekwargs = dict(reply_markup=email_kb(), parse_mode=ParseMode.HTML)
+                            if biz_conn_id:
+                                _ekwargs['business_connection_id'] = biz_conn_id
                             await client.send_message(
                                 cid,
                                 f'⚠️ <b>Email Session ផុតកំណត់</b>\n\n'
                                 f'📋 <code>{expired_addr}</code>\n\n'
                                 f'Session នេះបានផុតកំណត់ហើយ។ '
                                 f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
-                                reply_markup=email_kb(),
-                                parse_mode=ParseMode.HTML,
+                                **_ekwargs,
                             )
                         except Exception:
                             pass
@@ -1077,6 +1079,9 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
             to     = mail.get('toAddr')        or sess.email_address or ''
             body   = (mail.get('text') or '').strip()
             try:
+                _mkwargs = dict(parse_mode=ParseMode.HTML)
+                if biz_conn_id:
+                    _mkwargs['business_connection_id'] = biz_conn_id
                 await client.send_message(
                     cid,
                     f'📨 <b>Email ថ្មី!</b>\n'
@@ -1084,7 +1089,7 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                     f'👤 <b>From:</b> {sender}\n'
                     f'📬 <b>To:</b> {to}\n\n'
                     f'{body or "<i>(ទទេ)</i>"}',
-                    parse_mode=ParseMode.HTML,
+                    **_mkwargs,
                 )
             except Exception as se:
                 logger.warning(f'email_poll send uid={uid}: {se}')
@@ -1092,10 +1097,10 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
     _polling_tasks.pop(uid, None)
 
 # ── Email: watchdog (auto-restart on crash) ────────────────────────────────────
-async def _email_poll_watchdog(client: Client, uid: int, cid: int):
+async def _email_poll_watchdog(client: Client, uid: int, cid: int, biz_conn_id: str = None):
     while True:
         try:
-            await _email_poll_loop(client, uid, cid)
+            await _email_poll_loop(client, uid, cid, biz_conn_id)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -1104,10 +1109,10 @@ async def _email_poll_watchdog(client: Client, uid: int, cid: int):
             continue
         break  # clean exit
 
-def start_email_polling(client: Client, uid: int, cid: int):
+def start_email_polling(client: Client, uid: int, cid: int, biz_conn_id: str = None):
     stop_email_polling(uid)
     _polling_tasks[uid] = asyncio.get_event_loop().create_task(
-        _email_poll_watchdog(client, uid, cid)
+        _email_poll_watchdog(client, uid, cid, biz_conn_id)
     )
 
 def stop_email_polling(uid: int):
@@ -1141,7 +1146,7 @@ async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn
             sess.email_addr_id = live.get('address_id')
             if live.get('restore_key'):
                 sess.email_restore = live['restore_key']
-            start_email_polling(client, uid, cid)
+            start_email_polling(client, uid, cid, sess.biz_conn_id)
     if sess.email_address:
         addr = sess.email_address
         kb = mkb([
@@ -1174,7 +1179,7 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     sess.email_last_id = None
     _history_add(uid, result['email'])
     _save_email_sessions()
-    start_email_polling(client, uid, cid)
+    start_email_polling(client, uid, cid, sess.biz_conn_id)
     addr    = result['email']
     restore = result['restore_key']
     await edit_fn(
@@ -1277,7 +1282,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
             sess.email_last_id = None
             _history_add(uid, addr)
             if uid not in _polling_tasks:
-                start_email_polling(client, uid, cid)
+                start_email_polling(client, uid, cid, sess.biz_conn_id)
             await m.edit_text(
                 f'✅ <b>Email Resume ស្វ័យប្រវត្តិ!</b>\n\n'
                 f'📋 <code>{sess.email_address}</code>\n'
@@ -1304,7 +1309,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
     sess.email_last_id = None
     _history_add(uid, result['email'])
     _save_email_sessions()
-    start_email_polling(client, uid, cid)
+    start_email_polling(client, uid, cid, sess.biz_conn_id)
     await m.edit_text(
         f'✅ <b>Restore បានជោគជ័យ!</b>\n\n'
         f'🔑 <b>Restore Key:</b>\n<code>{sess.email_restore}</code>',
@@ -1383,7 +1388,10 @@ else:
 
 _load_email_sessions()
 logger.info('🤖 Bot កំពុង Start...')
-_run(_idle())
+
+_idle_obj = _idle()
+if _inspect.iscoroutine(_idle_obj):
+    _run(_idle_obj)
 
 if _inspect.iscoroutinefunction(app.stop):
     _run(app.stop())
