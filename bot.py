@@ -405,7 +405,7 @@ app = Client(
 )
 
 # ── /start ─────────────────────────────────────────────────────────────────────
-@app.on_message(filters.command('start'))
+@app.on_message(filters.incoming & filters.command('start'))
 async def cmd_start(client: Client, message: Message):
     uid  = message.from_user.id
     sess = reset_sess(uid)
@@ -576,7 +576,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
     sess.state = S_MAIN
 
 # ── Text message dispatcher ────────────────────────────────────────────────────
-@app.on_message(filters.text & ~filters.command(['start']) & filters.private)
+@app.on_message(filters.incoming & filters.text & ~filters.command(['start']) & filters.private)
 async def text_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
@@ -587,7 +587,7 @@ async def text_handler(client: Client, message: Message):
 
 
 # ── Photo / document dispatcher ────────────────────────────────────────────────
-@app.on_message(filters.photo | filters.document)
+@app.on_message(filters.incoming & (filters.photo | filters.document))
 async def media_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
