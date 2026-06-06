@@ -268,6 +268,16 @@ async def edit_or_send(client: Client, sess: UserSession, cid: int, text: str, m
     msg = await client.send_message(cid, text, **kwargs)
     save_msg(sess, cid, msg.id)
 
+async def _send(client: Client, sess: UserSession, cid: int, text: str, **kwargs):
+    if sess.biz_conn_id:
+        kwargs['business_connection_id'] = sess.biz_conn_id
+    return await client.send_message(cid, text, **kwargs)
+
+async def _send_doc(client: Client, sess: UserSession, cid: int, doc, **kwargs):
+    if sess.biz_conn_id:
+        kwargs['business_connection_id'] = sess.biz_conn_id
+    return await client.send_document(cid, doc, **kwargs)
+
 async def safe_delete(client: Client, cid: int, mid: int):
     try:
         await client.delete_messages(cid, mid)
@@ -690,7 +700,7 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
         except Exception:
             pass
     if not edited:
-        msg = await client.send_message(cid, text, reply_markup=kb, parse_mode=ParseMode.HTML)
+        msg = await _send(client, sess, cid, text, reply_markup=kb, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, msg.id)
     sess.state = S_STYLE
 
@@ -728,11 +738,10 @@ async def handle_pdf_build(client: Client, sess: UserSession, cid: int, orig_msg
         raw_name  = (sess.pdf_name or 'KhmerBot').strip().rstrip('.').replace('/', '_') or 'KhmerBot'
         fname     = raw_name if raw_name.endswith('.pdf') else raw_name + '.pdf'
         if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
-        await client.send_document(
-            cid, io.BytesIO(pdf_bytes), file_name=fname,
+        await _send_doc(client, sess, cid, io.BytesIO(pdf_bytes), file_name=fname,
             caption=f'✅ <b>PDF បង្កើតជោគជ័យ!</b>\n📄 {fname}  |  🖼️ {len(sess.pdf_photos)} ទំព័រ',
             parse_mode=ParseMode.HTML)
-        msg = await client.send_message(cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        msg = await _send(client, sess, cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
         save_msg(sess, cid, msg.id)
         sess.pdf_photos = []; sess.pdf_name = None; sess.state = S_MAIN
     except Exception as e:
@@ -759,9 +768,9 @@ async def handle_pdf2img(client: Client, message: Message, sess: UserSession):
         for i, img_bytes in enumerate(images):
             is_last = i == total - 1
             cap = (f'✅ <b>{"រួចរាល់! 1 ទំព័រ" if total==1 else f"រួចរាល់! {total} ទំព័រ → {fmt}" if is_last else f"ទំព័រ {i+1}/{total}"}</b>')
-            await client.send_document(cid, io.BytesIO(img_bytes), file_name=f'page_{i+1:02d}.{ext}',
-                                       caption=cap, parse_mode=ParseMode.HTML)
-        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=ik_img_done(fmt), parse_mode=ParseMode.HTML)
+            await _send_doc(client, sess, cid, io.BytesIO(img_bytes), file_name=f'page_{i+1:02d}.{ext}',
+                            caption=cap, parse_mode=ParseMode.HTML)
+        m = await _send(client, sess, cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=ik_img_done(fmt), parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id); sess.state = S_MAIN
     except Exception as e:
         logger.error(f'pdf2img: {e}')
@@ -775,15 +784,15 @@ async def handle_qr_create(client: Client, message: Message, sess: UserSession):
     total  = len(chunks)
     loop   = asyncio.get_running_loop()
     try:
-        loading = await client.send_message(cid, f'⏳ <b>កំពុងបង្កើត{"" if total==1 else f" {total}"} QR Code{"s" if total>1 else ""}...</b>', parse_mode=ParseMode.HTML)
+        loading = await _send(client, sess, cid, f'⏳ <b>កំពុងបង្កើត{"" if total==1 else f" {total}"} QR Code{"s" if total>1 else ""}...</b>', parse_mode=ParseMode.HTML)
         for idx, chunk in enumerate(chunks):
             img_bytes = await loop.run_in_executor(None, create_qr, chunk)
             fname     = f'QRCode_HD{"" if total==1 else f"_p{idx+1}"}.png'
-            await client.send_document(cid, io.BytesIO(img_bytes), file_name=fname)
+            await _send_doc(client, sess, cid, io.BytesIO(img_bytes), file_name=fname)
         await safe_delete(client, cid, loading.id)
         if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
         await safe_delete(client, cid, message.id)
-        m = await client.send_message(cid,
+        m = await _send(client, sess, cid,
             '✅ <b>QR Code រួចហើយ!</b>\n\nផ្ញើ Text ឬ រូបភាព QR ទៀត ឬ ចុច 🏠',
             reply_markup=IK_QR_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id)
@@ -809,8 +818,8 @@ async def handle_qr_scan(client: Client, message: Message, sess: UserSession):
         lines = '\n\n'.join(f'📌 <b>លទ្ធផលទី {i+1}:</b>\n<code>{r}</code>' for i,r in enumerate(results))
         if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
         await safe_delete(client, cid, message.id)
-        await client.send_message(cid, f'✅ <b>Scan QR ជោគជ័យ!</b> ({len(results)} QR)\n━━━━━━━━━\n{lines}', parse_mode=ParseMode.HTML)
-        m = await client.send_message(cid,
+        await _send(client, sess, cid, f'✅ <b>Scan QR ជោគជ័យ!</b> ({len(results)} QR)\n━━━━━━━━━\n{lines}', parse_mode=ParseMode.HTML)
+        m = await _send(client, sess, cid,
             'ផ្ញើ Text ឬ រូបភាព QR ទៀត ឬ ចុច 🏠',
             reply_markup=IK_QR_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id)
@@ -852,11 +861,10 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
             [ikb('🪄 លុបថ្មី', 'rmbg')],
             [ikb('🏠 ម៉ឺនុយមេ', 'home')],
         ])
-        await client.send_document(
-            cid, io.BytesIO(result), file_name='removed_bg.png',
+        await _send_doc(client, sess, cid, io.BytesIO(result), file_name='removed_bg.png',
             caption='✅ <b>លុប Background ជោគជ័យ!</b>',
             parse_mode=ParseMode.HTML)
-        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_RMBG_DONE, parse_mode=ParseMode.HTML)
+        m = await _send(client, sess, cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_RMBG_DONE, parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id); sess.state = S_MAIN
 
         # ── Notify admin ────────────────────────────────────────────────────
@@ -1181,8 +1189,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
     await safe_delete(client, cid, message.id)
     parts = text.split()
     if len(parts) != 2:
-        m = await client.send_message(
-            cid,
+        m = await _send(client, sess, cid,
             '⚠️ <b>ទម្រង់មិនត្រឹមត្រូវ!</b>\n\n'
             'ផ្ញើ: <code>address@domain.com restore_key</code>',
             reply_markup=mkb([[InlineKeyboardButton('Back', callback_data='email',
@@ -1190,7 +1197,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
             parse_mode=ParseMode.HTML)
         save_msg(sess, cid, m.id); return
     addr, key = parts[0], parts[1]
-    m = await client.send_message(cid, '⏳ <b>កំពុង Restore...</b>', parse_mode=ParseMode.HTML)
+    m = await _send(client, sess, cid, '⏳ <b>កំពុង Restore...</b>', parse_mode=ParseMode.HTML)
     loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(None, dropmail.restore_session, addr, key, uid)
@@ -1289,9 +1296,11 @@ async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_
 # ── Fallback ───────────────────────────────────────────────────────────────────
 async def handle_fallback(client: Client, message: Message, sess: UserSession):
     uid = message.from_user.id
+    biz_conn_id = sess.biz_conn_id
     reset_sess(uid); sess = get_sess(uid)
+    sess.biz_conn_id = biz_conn_id
     cid = message.chat.id
-    msg = await client.send_message(cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    msg = await _send(client, sess, cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
     save_msg(sess, cid, msg.id)
 
 
