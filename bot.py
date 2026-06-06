@@ -8,7 +8,6 @@ import asyncio
 import tempfile
 
 import httpx
-from gradio_client import Client as GradioClient
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -62,7 +61,6 @@ S_QR_SCAN    = 7
 S_PDF_RENAME = 8
 S_GOLD       = 9
 S_RMBG       = 10
-S_TTS        = 11
 
 # ── Session ────────────────────────────────────────────────────────────────────
 @dataclass
@@ -73,7 +71,6 @@ class UserSession:
     pdf_photos:   list           = field(default_factory=list)
     pdf_name:     Optional[str]  = None
     pdf2img_fmt:  Optional[str]  = None
-    tts_voice:    str            = 'km-F'
 
 
 _sessions: dict[int, UserSession] = {}
@@ -105,10 +102,9 @@ def ikb_url(text: str, url: str) -> InlineKeyboardButton:
 IK_MAIN = mkb([
     [ikb('✍️ រចនាប័ទ្មអក្សរ', 'style'),  ikb('🗂️ បំប្លែង PDF', 'doc')],
     [ikb('📷 QR Code', 'qr'),             ikb('🥇 ហាងឆេងមាស', 'gold')],
-    [ikb('🪄 លុប Background AI', 'rmbg'), ikb('🎙️ បំប្លែងអក្សរជាសំឡេង', 'tts')],
+    [ikb('🪄 លុប Background AI', 'rmbg')],
 ])
 IK_RMBG = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
-IK_TTS_CANCEL = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
 IK_DOC = mkb([
     [ikb('🖼️ រូបភាព → PDF', 'photo_pdf')],
     [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
@@ -312,51 +308,6 @@ def create_qr(text: str) -> bytes:
         except Exception:
             continue
     raise ValueError('Cannot generate QR')
-
-# ── Edge TTS via HuggingFace Space ─────────────────────────────────────────────
-EDGE_TTS_VOICES = {
-    'km-F': 'km-KH-SreymomNeural - km-KH (Female)',
-    'km-M': 'km-KH-PisethNeural - km-KH (Male)',
-    'en-F': 'en-US-JennyNeural - en-US (Female)',
-    'en-M': 'en-US-GuyNeural - en-US (Male)',
-    'zh-F': 'zh-CN-XiaoxiaoNeural - zh-CN (Female)',
-    'zh-M': 'zh-CN-YunxiNeural - zh-CN (Male)',
-}
-_edge_tts_client: GradioClient | None = None
-
-def _get_edge_client(force_new: bool = False) -> GradioClient:
-    global _edge_tts_client
-    if _edge_tts_client is None or force_new:
-        _edge_tts_client = GradioClient('innoai/Edge-TTS-Text-to-Speech')
-    return _edge_tts_client
-
-def _edge_generate(text: str, voice_key: str = 'km-F', rate: float = 0, pitch: float = 0) -> bytes:
-    voice = EDGE_TTS_VOICES.get(voice_key, EDGE_TTS_VOICES['km-F'])
-    last_err = None
-    for attempt in range(3):
-        try:
-            client = _get_edge_client(force_new=(attempt > 0))
-            result = client.predict(
-                text=text,
-                voice=voice,
-                rate=rate,
-                pitch=pitch,
-                api_name='/tts_interface',
-            )
-            mp3_path = result[0] if isinstance(result, (list, tuple)) else result
-            with open(mp3_path, 'rb') as f:
-                return f.read()
-        except Exception as e:
-            last_err = e
-            logger.warning(f'edge-tts attempt {attempt+1} failed: {e}')
-            import time; time.sleep(3)
-    raise last_err
-
-async def text_to_speech_edge(text: str, voice_key: str = 'km-F') -> bytes:
-    if not text.strip():
-        raise ValueError('អក្សរទទេ!')
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _edge_generate, text, voice_key)
 
 # ── Remove Background ──────────────────────────────────────────────────────────
 async def rmbg_account() -> dict:
@@ -562,42 +513,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
             '📤 <b>Upload រូបភាព:</b>', IK_RMBG)
         sess.state = S_RMBG; return
 
-    # ── tts menu ────────────────────────────────────────────────────────────
-    if d == 'tts':
-        reset_sess(uid); sess = get_sess(uid)
-        save_msg(sess, cid, query.message.id)
-        sess.state = S_TTS
-        sess.tts_voice = 'km-F'
-        IK_TTS_MENU = mkb([
-            [ikb('🇰🇭 ស្រី (Sreymom)', 'tts_v:km-F'), ikb('🇰🇭 ប្រុស (Piseth)', 'tts_v:km-M')],
-            [ikb('🇺🇸 Female (Jenny)', 'tts_v:en-F'), ikb('🇺🇸 Male (Guy)',    'tts_v:en-M')],
-            [ikb('🇨🇳 女 (Xiaoxiao)',  'tts_v:zh-F'), ikb('🇨🇳 男 (Yunxi)',    'tts_v:zh-M')],
-            [ikb('❌ បោះបង់', 'cancel_main')],
-        ])
-        await edit(
-            '🎙️ <b>Edge TTS — បំប្លែងអក្សរជាសំឡេង</b>\n\n'
-            '1️⃣ <b>ជ្រើសសំឡេង</b> ខាងក្រោម\n'
-            '2️⃣ <b>វាយអក្សរ</b> ហើយ Bot នឹង generate ភ្លាមៗ\n\n'
-            '✅ <b>ភាសាខ្មែរ ✓  English ✓  中文 ✓</b>\n\n'
-            '👇 <b>ជ្រើសសំឡេងជាមុន:</b>',
-            IK_TTS_MENU)
-        return
-
-    # ── tts voice select ────────────────────────────────────────────────────
-    if d.startswith('tts_v:'):
-        vk = d.split(':', 1)[1]
-        sess.tts_voice = vk
-        vnames = {'km-F':'🇰🇭 ស្រី Sreymom','km-M':'🇰🇭 ប្រុស Piseth',
-                  'en-F':'🇺🇸 Jenny','en-M':'🇺🇸 Guy',
-                  'zh-F':'🇨🇳 Xiaoxiao','zh-M':'🇨🇳 Yunxi'}
-        vname = vnames.get(vk, vk)
-        sess.state = S_TTS
-        await edit(
-            f'🎙️ <b>Edge TTS</b> — សំឡេង: <b>{vname}</b>\n\n'
-            '✏️ <b>វាយអក្សរខាងក្រោម:</b>',
-            IK_TTS_CANCEL)
-        return
-
     # ── gold ────────────────────────────────────────────────────────────────
     if d in ('gold', 'gold_live', 'cancel_gold'):
         await edit('⏳ <b>កំពុងទាញតម្លៃ...</b>')
@@ -630,7 +545,6 @@ async def text_handler(client: Client, message: Message):
     if   sess.state == S_STYLE:      await handle_style(client, message, sess)
     elif sess.state == S_QR_CREATE:  await handle_qr_create(client, message, sess)
     elif sess.state == S_PDF_RENAME: await handle_pdf_rename(client, message, sess)
-    elif sess.state == S_TTS:        await handle_tts(client, message, sess)
     else:                            await handle_fallback(client, message, sess)
 
 
@@ -872,53 +786,6 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         logger.error(f'rmbg: {e}')
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_RMBG)
         sess.state = S_RMBG
-
-# ── TTS handler (Edge TTS) ─────────────────────────────────────────────────────
-async def handle_tts(client: Client, message: Message, sess: UserSession):
-    t   = message.text.strip()
-    cid = message.chat.id
-    if not t:
-        await edit_or_send(client, sess, cid, '⚠️ <b>សូមវាយអក្សរ!</b>', IK_TTS_CANCEL)
-        return
-    if len(t) > 3000:
-        await edit_or_send(client, sess, cid, '⚠️ <b>អក្សរច្រើនពេក! (max 3000 អក្សរ)</b>', IK_TTS_CANCEL)
-        return
-    voice_key = getattr(sess, 'tts_voice', 'km-F')
-    vnames = {'km-F':'🇰🇭 Sreymom','km-M':'🇰🇭 Piseth',
-              'en-F':'🇺🇸 Jenny','en-M':'🇺🇸 Guy',
-              'zh-F':'🇨🇳 Xiaoxiao','zh-M':'🇨🇳 Yunxi'}
-    vname = vnames.get(voice_key, voice_key)
-    try:
-        await safe_delete(client, cid, message.id)
-        processing = await client.send_message(
-            cid,
-            f'⏳ <b>Edge TTS កំពុងបំប្លែង...</b> [{vname}]\n<i>(ប្រហែល 5-15 វិនាទី)</i>',
-            parse_mode=ParseMode.HTML,
-        )
-        audio_bytes = await text_to_speech_edge(t, voice_key)
-        await safe_delete(client, cid, processing.id)
-        if sess.mid:
-            await safe_delete(client, cid, sess.mid)
-            sess.mid = None
-        preview = t if len(t) <= 100 else t[:100] + '…'
-        IK_TTS_DONE = mkb([
-            [ikb('🎙️ បំប្លែងថ្មី', 'tts')],
-            [ikb('🏠 ម៉ឺនុយមេ', 'home')],
-        ])
-        audio_buf = io.BytesIO(audio_bytes)
-        audio_buf.name = 'tts.mp3'
-        await client.send_voice(
-            cid,
-            audio_buf,
-            caption=f'🎙️ <b>Edge TTS [{vname}] — ជោគជ័យ!</b>\n<i>"{preview}"</i>',
-            parse_mode=ParseMode.HTML,
-        )
-        m = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_TTS_DONE, parse_mode=ParseMode.HTML)
-        save_msg(sess, cid, m.id)
-        sess.state = S_TTS
-    except Exception as e:
-        logger.error(f'tts edge: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_TTS_CANCEL)
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
 async def handle_fallback(client: Client, message: Message, sess: UserSession):
