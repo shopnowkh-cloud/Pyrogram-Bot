@@ -277,7 +277,7 @@ _EMOJI_TAG_RE = re.compile(r'<emoji id="\d+">(.*?)</emoji>', re.DOTALL)
 def _biz_text(text: str) -> str:
     return _EMOJI_TAG_RE.sub(r'\1', text)
 
-def _biz_kb(kb):
+def _strip_kb_icons(kb):
     if not isinstance(kb, InlineKeyboardMarkup):
         return kb
     new_rows = []
@@ -299,18 +299,34 @@ async def _send(client: Client, sess: UserSession, cid: int, text: str, **kwargs
     if sess.biz_conn_id:
         kwargs['business_connection_id'] = sess.biz_conn_id
         text = _biz_text(text)
-        if 'reply_markup' in kwargs:
-            kwargs['reply_markup'] = _biz_kb(kwargs['reply_markup'])
-    return await client.send_message(cid, text, **kwargs)
+    try:
+        return await client.send_message(cid, text, **kwargs)
+    except Exception as e:
+        if sess.biz_conn_id and 'reply_markup' in kwargs:
+            kwargs['reply_markup'] = _strip_kb_icons(kwargs['reply_markup'])
+            try:
+                return await client.send_message(cid, text, **kwargs)
+            except Exception as e2:
+                logger.error(f'_send fallback: {e2}')
+                raise
+        raise
 
 async def _send_doc(client: Client, sess: UserSession, cid: int, doc, **kwargs):
     if sess.biz_conn_id:
         kwargs['business_connection_id'] = sess.biz_conn_id
         if 'caption' in kwargs:
             kwargs['caption'] = _biz_text(kwargs['caption'])
-        if 'reply_markup' in kwargs:
-            kwargs['reply_markup'] = _biz_kb(kwargs['reply_markup'])
-    return await client.send_document(cid, doc, **kwargs)
+    try:
+        return await client.send_document(cid, doc, **kwargs)
+    except Exception as e:
+        if sess.biz_conn_id and 'reply_markup' in kwargs:
+            kwargs['reply_markup'] = _strip_kb_icons(kwargs['reply_markup'])
+            try:
+                return await client.send_document(cid, doc, **kwargs)
+            except Exception as e2:
+                logger.error(f'_send_doc fallback: {e2}')
+                raise
+        raise
 
 async def safe_delete(client: Client, cid: int, mid: int):
     try:
