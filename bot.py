@@ -887,18 +887,17 @@ def email_kb() -> InlineKeyboardMarkup:
 # ── Email: handlers ────────────────────────────────────────────────────────────
 async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn):
     if sess.email_address:
-        text = (
-            f'📧 <b>Email បណ្ដោះអាសន្ន</b>\n\n'
-            f'<code>{sess.email_address}</code>'
-        )
+        addr = sess.email_address
+        kb = mkb([
+            [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
+            [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
+            [ikb('🔄 Restore Email', 'email_restore')],
+            [InlineKeyboardButton('Back', callback_data='home',
+                                  icon_custom_emoji_id='5877629862306385808')],
+        ])
+        await edit_fn('📧 <b>Email បណ្ដោះអាសន្ន</b>', kb)
     else:
-        text = (
-            '📧 <b>Email បណ្ដោះអាសន្ន</b>\n\n'
-            'បង្កើត Email ដើម្បីទទួលសារ\n'
-            'Bot ជូន Email ចូលដោយស្វ័យប្រវត្តិ 🔔\n\n'
-            '👇 ចុច <b>✉️ Email ថ្មី</b> ដើម្បីចាប់ផ្ដើម'
-        )
-    await edit_fn(text, email_kb())
+        await edit_fn('📧 <b>Email បណ្ដោះអាសន្ន</b>', email_kb())
 
 async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     await edit_fn('⏳ <b>កំពុងបង្កើត Email...</b>')
