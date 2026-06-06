@@ -872,7 +872,7 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                 restored = await loop.run_in_executor(
                     None, dropmail.restore_session, sess.email_address, sess.email_restore
                 )
-                if restored:
+                if restored and not restored.get('already_in_use'):
                     sess.email_session = restored['session_id']
                     sess.email_addr_id = restored.get('address_id')
                     sess.email_restore = restored.get('restore_key')
@@ -880,7 +880,24 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                     mails = await loop.run_in_executor(
                         None, dropmail.get_new_mails, sess.email_session, sess.email_last_id
                     )
-            except Exception:
+                else:
+                    # Address stuck or expired — stop polling and notify user
+                    logger.warning(f'email_poll uid={uid}: session expired, cannot restore')
+                    try:
+                        await client.send_message(
+                            cid,
+                            f'⚠️ <b>Email Session ផុតកំណត់</b>\n\n'
+                            f'📋 <code>{sess.email_address}</code>\n\n'
+                            f'Session នេះបានផុតកំណត់ហើយ។ '
+                            f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
+                            reply_markup=email_kb(),
+                            parse_mode=ParseMode.HTML,
+                        )
+                    except Exception:
+                        pass
+                    break
+            except Exception as e:
+                logger.warning(f'email_poll restore uid={uid}: {e}')
                 mails = []
         if not mails:
             continue
@@ -1055,31 +1072,50 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
         await m.edit_text('❌ <b>Restore Key មិនត្រឹមត្រូវ ឬ Email បានផុតកំណត់ហើយ។</b>',
                           reply_markup=email_kb(), parse_mode=ParseMode.HTML)
         sess.state = S_EMAIL; return
-    # Email is still active on Dropmail — resume existing session from disk
+    # Email is still active on Dropmail — try to resume existing session from disk
     if result.get('already_in_use'):
         saved = _load_email_sessions().get(str(uid))
         if saved and saved.get('session_id') and saved.get('email') == addr:
-            sess.email_session = saved['session_id']
-            sess.email_address = saved['email']
-            sess.email_addr_id = saved.get('address_id')
-            sess.email_restore = saved.get('restore_key', key)
-            sess.email_last_id = None
-            _history_add(uid, addr)
-            if uid not in _polling_tasks:
-                start_email_polling(client, uid, cid)
-            await m.edit_text(
-                f'✅ <b>Email ស្ថិតក្នុងស្ថានភាពប្រើប្រាស់ — Resume ស្វ័យប្រវត្តិ!</b>\n\n'
-                f'📋 <code>{addr}</code>\n'
-                f'🔑 <b>Restore Key:</b> <code>{sess.email_restore}</code>',
-                reply_markup=mkb([
-                    [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
-                    [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
-                    [ikb('✉️ Email ថ្មី', 'email_new')],
-                    [ikb('📋 បញ្ជី Email', 'email_list')],
-                    [InlineKeyboardButton('Back', callback_data='home',
-                                          icon_custom_emoji_id='5877629862306385808')],
-                ]),
-                parse_mode=ParseMode.HTML)
+            old_sid = saved['session_id']
+            # Verify the saved session is still alive on Dropmail
+            try:
+                probe = await loop.run_in_executor(
+                    None, dropmail.get_new_mails, old_sid, None
+                )
+            except Exception:
+                probe = None
+            if probe is not None:
+                # Session still valid — resume it
+                sess.email_session = old_sid
+                sess.email_address = saved['email']
+                sess.email_addr_id = saved.get('address_id')
+                sess.email_restore = saved.get('restore_key', key)
+                sess.email_last_id = None
+                _history_add(uid, addr)
+                if uid not in _polling_tasks:
+                    start_email_polling(client, uid, cid)
+                await m.edit_text(
+                    f'✅ <b>Email Resume ស្វ័យប្រវត្តិ!</b>\n\n'
+                    f'📋 <code>{addr}</code>\n'
+                    f'🔑 <b>Restore Key:</b> <code>{sess.email_restore}</code>',
+                    reply_markup=mkb([
+                        [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
+                        [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
+                        [ikb('✉️ Email ថ្មី', 'email_new')],
+                        [ikb('📋 បញ្ជី Email', 'email_list')],
+                        [InlineKeyboardButton('Back', callback_data='home',
+                                              icon_custom_emoji_id='5877629862306385808')],
+                    ]),
+                    parse_mode=ParseMode.HTML)
+            else:
+                # Saved session also expired — email is gone
+                _email_sess_clear(uid)
+                await m.edit_text(
+                    f'❌ <b>Email Session ផុតកំណត់ហើយ។</b>\n\n'
+                    f'📋 <code>{addr}</code>\n\n'
+                    f'Session នេះបានផុតកំណត់ ហើយ Restore Key ប្រើប្រាស់ម្ដងទៀតមិនបានទេ។\n'
+                    f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
+                    reply_markup=email_kb(), parse_mode=ParseMode.HTML)
         else:
             await m.edit_text(
                 '⚠️ <b>Email នៅ active ប៉ុន្តែរកមិនឃើញ session ក្នុង bot ទេ។</b>\n\n'
