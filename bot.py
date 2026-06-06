@@ -949,8 +949,7 @@ async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn
          ikb('🗑', f'email_del_{addr}')]
         for addr in reversed(history)
     ]
-    rows.append([ikb('✉️ Email ថ្មី', 'email_new')])
-    rows.append([InlineKeyboardButton('Back', callback_data='home',
+    rows.append([InlineKeyboardButton('Back', callback_data='email',
                                       icon_custom_emoji_id='5877629862306385808')])
     await edit_fn(
         f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n'
