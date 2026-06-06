@@ -24,36 +24,6 @@ from pyrogram.types import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s|%(levelname)s|%(message)s")
 logger = logging.getLogger(__name__)
 
-# ── Email sessions (persisted to file — survives bot restart) ──────────────────
-EMAIL_SESSIONS_FILE = 'email_sessions.json'
-
-def _load_email_sessions() -> dict:
-    try:
-        with open(EMAIL_SESSIONS_FILE, 'r') as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _save_email_sessions(data: dict):
-    try:
-        with open(EMAIL_SESSIONS_FILE, 'w') as f:
-            json.dump(data, f)
-    except Exception as e:
-        logger.warning(f'email_sessions save: {e}')
-
-def _email_sess_persist(uid: int, sess) -> None:
-    """Persist only email + restore_key. Session is always re-discovered via Dropmail API."""
-    data = _load_email_sessions()
-    data[str(uid)] = {
-        'email':       sess.email_address,
-        'restore_key': sess.email_restore,
-    }
-    _save_email_sessions(data)
-
-def _email_sess_clear(uid: int) -> None:
-    data = _load_email_sessions()
-    data.pop(str(uid), None)
-    _save_email_sessions(data)
 
 # ── Remove-bg stats (persisted to file) ────────────────────────────────────────
 STATS_FILE = 'rmbg_stats.json'
@@ -117,13 +87,7 @@ _sessions: dict[int, UserSession] = {}
 
 def get_sess(uid: int) -> UserSession:
     if uid not in _sessions:
-        sess = UserSession()
-        # Load only email + restore_key from disk — session_id is re-discovered via Dropmail API
-        saved = _load_email_sessions().get(str(uid))
-        if saved and saved.get('email') and saved.get('restore_key'):
-            sess.email_address = saved['email']
-            sess.email_restore = saved['restore_key']
-        _sessions[uid] = sess
+        _sessions[uid] = UserSession()
     return _sessions[uid]
 
 def reset_sess(uid: int) -> UserSession:
@@ -876,7 +840,6 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                     sess.email_addr_id = live.get('address_id')
                     if live.get('restore_key'):
                         sess.email_restore = live['restore_key']
-                    _email_sess_persist(uid, sess)
                     logger.info(f'email_poll uid={uid}: recovered session via find_user_sessions')
                     mails = await loop.run_in_executor(
                         None, dropmail.get_new_mails, sess.email_session, uid, sess.email_last_id
@@ -890,14 +853,16 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
                         sess.email_session = restored['session_id']
                         sess.email_addr_id = restored.get('address_id')
                         sess.email_restore = restored.get('restore_key')
-                        _email_sess_persist(uid, sess)
                         mails = await loop.run_in_executor(
                             None, dropmail.get_new_mails, sess.email_session, uid, sess.email_last_id
                         )
                     else:
-                        # Truly expired — stop polling and notify user
+                        # Truly expired — clear in-memory state and notify user
                         logger.warning(f'email_poll uid={uid}: session expired, cannot recover')
-                        _email_sess_clear(uid)
+                        sess.email_session = None
+                        sess.email_address = None
+                        sess.email_addr_id = None
+                        sess.email_restore = None
                         try:
                             await client.send_message(
                                 cid,
@@ -959,26 +924,29 @@ def email_kb() -> InlineKeyboardMarkup:
 
 # ── Email: handlers ────────────────────────────────────────────────────────────
 async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
+    loop = asyncio.get_running_loop()
+    # Auto-discover active sessions if not polling
+    if uid not in _polling_tasks:
+        try:
+            user_sessions = await loop.run_in_executor(None, dropmail.find_user_sessions, uid)
+        except Exception:
+            user_sessions = []
+        if user_sessions:
+            # Match remembered address, or take the first active session
+            live = None
+            if sess.email_address:
+                live = next((s for s in user_sessions if s['email'] == sess.email_address), None)
+            if not live:
+                live = user_sessions[0]
+            sess.email_session = live['session_id']
+            sess.email_address = live['email']
+            sess.email_addr_id = live.get('address_id')
+            if live.get('restore_key'):
+                sess.email_restore = live['restore_key']
+            _history_add(uid, sess.email_address)
+            start_email_polling(client, uid, cid)
     if sess.email_address:
         addr = sess.email_address
-        # Auto-resume polling after bot restart — verify session still alive first
-        if uid not in _polling_tasks:
-            loop = asyncio.get_running_loop()
-            live = None
-            # Use user-specific token: find_user_sessions only returns this user's sessions
-            try:
-                live = await loop.run_in_executor(
-                    None, dropmail.find_session_by_address, addr, uid
-                )
-            except Exception:
-                live = None
-            if live:
-                sess.email_session = live['session_id']
-                sess.email_addr_id = live.get('address_id') or sess.email_addr_id
-                if live.get('restore_key'):
-                    sess.email_restore = live['restore_key']
-                _email_sess_persist(uid, sess)
-                start_email_polling(client, uid, cid)
         kb = mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
             [ikb('✉️ Email ថ្មី', 'email_new')],
@@ -1008,7 +976,6 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     sess.email_restore = result['restore_key']
     sess.email_last_id = None
     _history_add(uid, result['email'])
-    _email_sess_persist(uid, sess)
     start_email_polling(client, uid, cid)
     addr    = result['email']
     restore = result['restore_key']
@@ -1070,7 +1037,6 @@ async def handle_email_delete_one(client: Client, sess: UserSession, cid: int,
         sess.email_addr_id = None
         sess.email_restore = None
         sess.email_last_id = None
-        _email_sess_clear(uid)
     _history_remove(uid, addr)
     await handle_email_list(client, sess, cid, edit_fn, uid)
 
@@ -1119,7 +1085,6 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
                 sess.email_restore = live['restore_key']
             sess.email_last_id = None
             _history_add(uid, addr)
-            _email_sess_persist(uid, sess)
             if uid not in _polling_tasks:
                 start_email_polling(client, uid, cid)
             await m.edit_text(
@@ -1136,8 +1101,11 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
                 ]),
                 parse_mode=ParseMode.HTML)
         else:
-            # Session truly gone — clear and tell user
-            _email_sess_clear(uid)
+            # Session truly gone — clear in-memory state
+            sess.email_session = None
+            sess.email_address = None
+            sess.email_addr_id = None
+            sess.email_restore = None
             await m.edit_text(
                 f'❌ <b>Email Session ផុតកំណត់ហើយ។</b>\n\n'
                 f'📋 <code>{addr}</code>\n\n'
@@ -1151,7 +1119,6 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
     sess.email_restore = result.get('restore_key', key)
     sess.email_last_id = None
     _history_add(uid, result['email'])
-    _email_sess_persist(uid, sess)
     start_email_polling(client, uid, cid)
     await m.edit_text(
         f'✅ <b>Restore បានជោគជ័យ!</b>\n\n'
@@ -1185,7 +1152,6 @@ async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_
     sess.email_addr_id = None
     sess.email_restore = None
     sess.email_last_id = None
-    _email_sess_clear(uid)
     await edit_fn(
         '🗑 <b>Email ត្រូវបានលុបចោលហើយ។</b>\n\nចុច ✉️ Email ថ្មី ដើម្បីបង្កើតថ្មី។',
         email_kb()
