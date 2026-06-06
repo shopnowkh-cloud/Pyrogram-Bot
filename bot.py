@@ -111,16 +111,23 @@ def ikb_url(text: str, url: str) -> InlineKeyboardButton:
 # ── Inline keyboards ───────────────────────────────────────────────────────────
 IK_DOC = mkb([
     [ikb('🖼️ រូបភាព → PDF', 'photo_pdf')],
-    [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
+    [ikb('🖼️ PDF → PNG', 'pdf_png')],
+    [ikb('📷 PDF → JPG', 'pdf_jpg')],
     [ikb('🏠 ម៉ឺនុយមេ', 'home')],
 ])
-IK_PDF_DONE = mkb([[ikb('🖼️ PDF ថ្មី', 'photo_pdf'), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
+IK_PDF_DONE = mkb([
+    [ikb('🖼️ PDF ថ្មី', 'photo_pdf')],
+    [ikb('🏠 ម៉ឺនុយមេ', 'home')],
+])
 IK_QR_DONE  = mkb([[ikb('🏠 ម៉ឺនុយមេ', 'home')]])
 
 
 def ik_img_done(fmt: str) -> InlineKeyboardMarkup:
     cb = 'pdf_png' if fmt == 'PNG' else 'pdf_jpg'
-    return mkb([[ikb(f'🔄 {fmt} ថ្មី', cb), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
+    return mkb([
+        [ikb(f'🔄 {fmt} ថ្មី', cb)],
+        [ikb('🏠 ម៉ឺនុយមេ', 'home')],
+    ])
 
 # ── Text style maps ────────────────────────────────────────────────────────────
 def rng(u, lo, hi, base):
@@ -261,12 +268,12 @@ async def safe_delete(client: Client, cid: int, mid: int):
 # ── Keyboards ──────────────────────────────────────────────────────────────────
 def main_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [InlineKeyboardButton('រចនាបថអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942'),
-         InlineKeyboardButton('PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
-        [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003'),
-         InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
-        [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935'),
-         InlineKeyboardButton('📧 Email', callback_data='email')],
+        [InlineKeyboardButton('រចនាបថអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942')],
+        [InlineKeyboardButton('PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
+        [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
+        [InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
+        [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
+        [InlineKeyboardButton('📧 Email', callback_data='email')],
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
@@ -275,7 +282,8 @@ def cancel_kb(data: str) -> InlineKeyboardMarkup:
 def pdf_kb(n: int, name=None) -> InlineKeyboardMarkup:
     lbl = f'✅ បង្កើត PDF ({n} រូប)' + (f' 📄 "{name}"' if name else '')
     return mkb([
-        [ikb(lbl, 'pdf_build'), ikb('✏️ ប្តូរឈ្មោះ', 'pdf_rename')],
+        [ikb(lbl, 'pdf_build')],
+        [ikb('✏️ ប្តូរឈ្មោះ', 'pdf_rename')],
         [InlineKeyboardButton('Back', callback_data='doc', icon_custom_emoji_id='5877629862306385808')],
     ])
 
@@ -545,7 +553,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         except Exception as e:
             logger.error(f'gold: {e}')
             await edit('❌ <b>មានបញ្ហាទាញតម្លៃ! ព្យាយាមម្ដងទៀត</b>',
-                       mkb([[ikb('🔄 ព្យាយាមម្ដងទៀត', 'gold'), ikb('🏠 ម៉ឺនុយមេ', 'home')]]))
+                       mkb([[ikb('🔄 ព្យាយាមម្ដងទៀត', 'gold')], [ikb('🏠 ម៉ឺនុយមេ', 'home')]]))
         sess.state = S_GOLD; return
 
 
@@ -593,8 +601,9 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
 
     pairs = await loop.run_in_executor(None, compute)
     btns = [InlineKeyboardButton(styled, copy_text=styled, style=ButtonStyle.DEFAULT) for _, styled in pairs]
-    rows = [btns[i:i+2] for i in range(0, len(btns), 2)]
-    rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new', ButtonStyle.SUCCESS), ikb('🏠 ម៉ឺនុយមេ', 'home')])
+    rows = [[btn] for btn in btns]
+    rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new', ButtonStyle.SUCCESS)])
+    rows.append([ikb('🏠 ម៉ឺនុយមេ', 'home')])
 
     await safe_delete(client, cid, message.id)
 
@@ -767,7 +776,8 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         stats = await loop.run_in_executor(None, _load_stats)
         await safe_delete(client, cid, message.id)
         IK_RMBG_DONE = mkb([
-            [ikb('🪄 លុបថ្មី', 'rmbg'), ikb('🏠 ម៉ឺនុយមេ', 'home')]
+            [ikb('🪄 លុបថ្មី', 'rmbg')],
+            [ikb('🏠 ម៉ឺនុយមេ', 'home')],
         ])
         await client.send_document(
             cid, io.BytesIO(result), file_name='removed_bg.png',
@@ -999,11 +1009,10 @@ async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn
         f'{i}. <code>{addr}</code>'
         for i, addr in enumerate(reversed(history), 1)
     ]
-    rows = [
-        [InlineKeyboardButton(addr, copy_text=addr),
-         ikb('🗑', f'email_del_{addr}')]
-        for addr in reversed(history)
-    ]
+    rows = []
+    for addr in reversed(history):
+        rows.append([InlineKeyboardButton(addr, copy_text=addr)])
+        rows.append([ikb('🗑 លុប', f'email_del_{addr}')])
     rows.append([InlineKeyboardButton('Back', callback_data='email',
                                       icon_custom_emoji_id='5877629862306385808')])
     await edit_fn(
