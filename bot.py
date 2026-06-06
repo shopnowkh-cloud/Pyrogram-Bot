@@ -907,11 +907,14 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     sess.email_last_id = None
     _history_add(uid, result['email'])
     start_email_polling(client, uid, cid)
-    addr = result['email']
+    addr    = result['email']
+    restore = result['restore_key']
     await edit_fn(
-        f'✅ <b>Email ថ្មីបានបង្កើត!</b>',
+        f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
+        f'🔑 <b>Restore Key:</b>\n<code>{restore}</code>',
         mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
+            [InlineKeyboardButton(f'🔑 {restore}', copy_text=restore)],
             [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
             [InlineKeyboardButton('Back', callback_data='home',
                                   icon_custom_emoji_id='5877629862306385808')],
