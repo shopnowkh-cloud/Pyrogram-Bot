@@ -784,16 +784,26 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
         await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_main'))
         sess.state = S_RMBG
 
-# ── Email history (all addresses ever created per user) ────────────────────────
-_email_history: dict[int, list[str]] = {}
+# ── Email: history & polling state ────────────────────────────────────────────
+_email_history: dict[int, list[str]]   = {}  # uid → [address, ...]
+_polling_tasks: dict[int, asyncio.Task] = {}  # uid → Task
 
-# ── Email polling ──────────────────────────────────────────────────────────────
-_polling_tasks: dict[int, asyncio.Task] = {}
+POLL_INTERVAL = 3  # seconds
 
+def _history_add(uid: int, addr: str):
+    _email_history.setdefault(uid, [])
+    if addr not in _email_history[uid]:
+        _email_history[uid].append(addr)
+
+def _history_remove(uid: int, addr: str):
+    lst = _email_history.get(uid, [])
+    if addr in lst:
+        lst.remove(addr)
+
+# ── Email: polling loop ────────────────────────────────────────────────────────
 async def _email_poll_loop(client: Client, uid: int, cid: int):
-    INTERVAL = 3
     while True:
-        await asyncio.sleep(INTERVAL)
+        await asyncio.sleep(POLL_INTERVAL)
         sess = get_sess(uid)
         if not sess.email_session or not sess.email_address:
             break
@@ -805,6 +815,7 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
         except Exception as e:
             logger.warning(f'email_poll uid={uid}: {e}')
             continue
+        # Session expired — attempt restore
         if mails is None:
             try:
                 restored = await loop.run_in_executor(
@@ -823,18 +834,19 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
             continue
         for mail in mails:
             subj    = mail.get('headerSubject') or '(គ្មានប្រធានបទ)'
-            sender  = mail.get('fromAddr') or 'unknown'
+            sender  = mail.get('fromAddr')      or 'unknown'
             body    = (mail.get('text') or '').strip()
             preview = body[:500] + '…' if len(body) > 500 else body
-            text = (
-                f'📬 <b>Email ថ្មីចូល!</b>\n\n'
-                f'<b>ប្រធានបទ:</b> {subj}\n'
-                f'<b>ពី:</b> <code>{sender}</code>\n'
-                f'━━━━━━━━━━━━━━━━━━\n'
-                f'{preview or "<i>(ទទេ)</i>"}'
-            )
             try:
-                await client.send_message(cid, text, parse_mode=ParseMode.HTML)
+                await client.send_message(
+                    cid,
+                    f'📬 <b>Email ថ្មីចូល!</b>\n\n'
+                    f'<b>ប្រធានបទ:</b> {subj}\n'
+                    f'<b>ពី:</b> <code>{sender}</code>\n'
+                    f'━━━━━━━━━━━━━━━━━━\n'
+                    f'{preview or "<i>(ទទេ)</i>"}',
+                    parse_mode=ParseMode.HTML,
+                )
             except Exception as se:
                 logger.warning(f'email_poll send uid={uid}: {se}')
         sess.email_last_id = mails[-1].get('id')
@@ -842,45 +854,40 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
 
 def start_email_polling(client: Client, uid: int, cid: int):
     stop_email_polling(uid)
-    task = asyncio.get_event_loop().create_task(_email_poll_loop(client, uid, cid))
-    _polling_tasks[uid] = task
+    _polling_tasks[uid] = asyncio.get_event_loop().create_task(
+        _email_poll_loop(client, uid, cid)
+    )
 
 def stop_email_polling(uid: int):
     task = _polling_tasks.pop(uid, None)
     if task and not task.done():
         task.cancel()
 
-# ── Email keyboards ────────────────────────────────────────────────────────────
-def email_main_kb() -> InlineKeyboardMarkup:
+# ── Email: keyboard (single, reused everywhere) ────────────────────────────────
+def email_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [ikb('✉️ Email ថ្មី', 'email_new'),   ikb('📋 បញ្ជី Email', 'email_list')],
+        [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
         [ikb('🗑 លុប Email', 'email_delete')],
-        [InlineKeyboardButton('Back', callback_data='home', icon_custom_emoji_id='5877629862306385808')],
+        [InlineKeyboardButton('Back', callback_data='home',
+                              icon_custom_emoji_id='5877629862306385808')],
     ])
 
-def email_view_kb() -> InlineKeyboardMarkup:
-    return mkb([
-        [ikb('✉️ Email ថ្មី', 'email_new'),   ikb('🗑 លុប Email', 'email_delete')],
-        [InlineKeyboardButton('Back', callback_data='email', icon_custom_emoji_id='5877629862306385808')],
-    ])
-
-# ── Email handlers ──────────────────────────────────────────────────────────────
+# ── Email: handlers ────────────────────────────────────────────────────────────
 async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn):
-    addr = sess.email_address
-    if addr:
+    if sess.email_address:
         text = (
             f'📧 <b>Email បណ្ដោះអាសន្ន</b>\n\n'
-            f'<code>{addr}</code>\n\n'
-            f'👆 ចុចលើ Email ដើម្បីចម្លង'
+            f'<code>{sess.email_address}</code>\n\n'
+            f'👆 ចុចចម្លង · 🔔 Bot ជូន Email ចូលស្វ័យប្រវត្តិ'
         )
     else:
         text = (
             '📧 <b>Email បណ្ដោះអាសន្ន</b>\n\n'
-            'បង្កើត Email ជ្រើសរើស Email ថ្មី\n'
-            'ទទួល Email ដោយស្វ័យប្រវត្តិ\n\n'
-            '👇 ចុចបង្កើតដើម្បីចាប់ផ្ដើម'
+            'បង្កើត Email ដើម្បីទទួលសារ\n'
+            'Bot ជូន Email ចូលដោយស្វ័យប្រវត្តិ 🔔\n\n'
+            '👇 ចុច <b>✉️ Email ថ្មី</b> ដើម្បីចាប់ផ្ដើម'
         )
-    await edit_fn(text, email_main_kb())
+    await edit_fn(text, email_kb())
 
 async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     await edit_fn('⏳ <b>កំពុងបង្កើត Email...</b>')
@@ -888,92 +895,56 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     try:
         result = await loop.run_in_executor(None, dropmail.create_session)
     except Exception as e:
-        await edit_fn(f'❌ <b>បង្កើតមិនបាន:</b> {e}', email_main_kb())
+        await edit_fn(f'❌ <b>បង្កើតមិនបាន:</b> {e}', email_kb())
         return
     if not result:
-        await edit_fn('❌ <b>មិនអាចបង្កើតបានទេ។ ព្យាយាមម្ដងទៀត។</b>', email_main_kb())
+        await edit_fn('❌ <b>មិនអាចបង្កើតបានទេ។ ព្យាយាមម្ដងទៀត។</b>', email_kb())
         return
-    sess.email_session  = result['session_id']
-    sess.email_address  = result['email']
-    sess.email_addr_id  = result['address_id']
-    sess.email_restore  = result['restore_key']
-    sess.email_last_id  = None
-    if uid not in _email_history:
-        _email_history[uid] = []
-    if result['email'] not in _email_history[uid]:
-        _email_history[uid].append(result['email'])
+    sess.email_session = result['session_id']
+    sess.email_address = result['email']
+    sess.email_addr_id = result['address_id']
+    sess.email_restore = result['restore_key']
+    sess.email_last_id = None
+    _history_add(uid, result['email'])
     start_email_polling(client, uid, cid)
     await edit_fn(
         f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
         f'<code>{result["email"]}</code>\n\n'
-        f'👆 ចុចចម្លង — Bot នឹងជូន Email ចូលដោយស្វ័យប្រវត្តិ 🔔',
-        email_view_kb()
+        f'👆 ចុចចម្លង · Bot ជូន Email ចូលស្វ័យប្រវត្តិ 🔔',
+        email_kb()
     )
-
-async def handle_email_inbox(client: Client, sess: UserSession, cid: int, edit_fn):
-    if not sess.email_session or not sess.email_address:
-        await edit_fn('❌ <b>មិនទាន់មាន Email ទេ។</b>\nចុច ✉️ Email ថ្មី ដើម្បីបង្កើត។', email_main_kb())
-        return
-    await edit_fn('⏳ <b>កំពុងពិនិត្យ Inbox...</b>')
-    loop = asyncio.get_running_loop()
-    try:
-        mails = await loop.run_in_executor(None, dropmail.get_new_mails, sess.email_session, None)
-    except Exception as e:
-        await edit_fn(f'❌ <b>កំហុស:</b> {e}', email_view_kb())
-        return
-    if mails is None:
-        # session expired — try restore
-        try:
-            restored = await loop.run_in_executor(None, dropmail.restore_session, sess.email_address, sess.email_restore)
-            if restored:
-                sess.email_session = restored['session_id']
-                sess.email_addr_id = restored.get('address_id')
-                sess.email_restore = restored.get('restore_key')
-                mails = await loop.run_in_executor(None, dropmail.get_new_mails, sess.email_session, None)
-        except Exception:
-            mails = []
-    if not mails:
-        text = (
-            f'📭 <b>ប្រអប់ទទេ</b>\n\n'
-            f'📧 <code>{sess.email_address}</code>\n\n'
-            f'មិនទាន់មាន Email ចូលទេ។'
-        )
-    else:
-        text = f'📬 <b>{len(mails)} Email</b>\n📧 <code>{sess.email_address}</code>\n\n'
-        for i, mail in enumerate(mails[-5:], 1):
-            subj    = mail.get('headerSubject') or '(គ្មានប្រធានបទ)'
-            sender  = mail.get('fromAddr') or 'unknown'
-            body    = (mail.get('text') or '').strip()
-            preview = body[:200] + '…' if len(body) > 200 else body
-            text += (
-                f'━━━━━━━━━━━━━━━━━━\n'
-                f'<b>#{i} {subj}</b>\n'
-                f'ពី: <code>{sender}</code>\n'
-                f'{preview or "<i>(ទទេ)</i>"}\n\n'
-            )
-        if mails:
-            sess.email_last_id = mails[-1].get('id')
-    await edit_fn(text, email_view_kb())
 
 async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     history = _email_history.get(uid, [])
     if not history:
-        await edit_fn('❌ <b>មិនទាន់មានEmail ត្រូវបានបង្កើតទេ។</b>\nចុច ✉️ Email ថ្មី ដើម្បីចាប់ផ្ដើម។', email_main_kb())
+        await edit_fn(
+            '📭 <b>មិនទាន់មាន Email ត្រូវបានបង្កើតទេ។</b>\n\n'
+            'ចុច ✉️ Email ថ្មី ដើម្បីចាប់ផ្ដើម។',
+            email_kb()
+        )
         return
-    lines = []
-    for i, addr in enumerate(reversed(history), 1):
-        lines.append(f'{i}. <code>{addr}</code>  ✅ <b>Active</b>')
-    text = f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n' + '\n'.join(lines)
-    await edit_fn(text, email_view_kb())
+    lines = [
+        f'{i}. <code>{addr}</code>  ✅ <b>Active</b>'
+        for i, addr in enumerate(reversed(history), 1)
+    ]
+    await edit_fn(
+        f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n' + '\n'.join(lines),
+        email_kb()
+    )
 
 async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
-    if not sess.email_addr_id and not sess.email_address:
-        await edit_fn('❌ <b>មិនមាន Email ដែលត្រូវលុបទេ។</b>', email_main_kb())
+    if not sess.email_address and not sess.email_addr_id:
+        await edit_fn('❌ <b>មិនមាន Email ដែលត្រូវលុបទេ។</b>', email_kb())
         return
     stop_email_polling(uid)
     loop = asyncio.get_running_loop()
     if sess.email_addr_id:
-        await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id)
+        try:
+            await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id)
+        except Exception as e:
+            logger.warning(f'email_delete uid={uid}: {e}')
+    if sess.email_address:
+        _history_remove(uid, sess.email_address)
     sess.email_session = None
     sess.email_address = None
     sess.email_addr_id = None
@@ -981,7 +952,7 @@ async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_
     sess.email_last_id = None
     await edit_fn(
         '🗑 <b>Email ត្រូវបានលុបចោលហើយ។</b>\n\nចុច ✉️ Email ថ្មី ដើម្បីបង្កើតថ្មី។',
-        email_main_kb()
+        email_kb()
     )
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
