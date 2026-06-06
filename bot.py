@@ -879,8 +879,7 @@ async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn
     if sess.email_address:
         text = (
             f'📧 <b>Email បណ្ដោះអាសន្ន</b>\n\n'
-            f'<code>{sess.email_address}</code>\n\n'
-            f'👆 ចុចចម្លង · 🔔 Bot ជូន Email ចូលស្វ័យប្រវត្តិ'
+            f'<code>{sess.email_address}</code>'
         )
     else:
         text = (
