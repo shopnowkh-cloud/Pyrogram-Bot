@@ -861,6 +861,50 @@ def _history_remove(uid: int, addr: str):
         lst.remove(addr)
 
 
+EMAIL_SESSIONS_FILE = 'email_sessions.json'
+
+def _save_email_sessions():
+    try:
+        data = {
+            'history': {str(uid): addrs for uid, addrs in _email_history.items()},
+            'sessions': {
+                str(uid): {
+                    'email_session': sess.email_session,
+                    'email_address': sess.email_address,
+                    'email_addr_id': sess.email_addr_id,
+                    'email_restore': sess.email_restore,
+                    'email_last_id': sess.email_last_id,
+                }
+                for uid, sess in _sessions.items()
+                if sess.email_address
+            },
+        }
+        with open(EMAIL_SESSIONS_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.warning(f'_save_email_sessions: {e}')
+
+def _load_email_sessions():
+    try:
+        with open(EMAIL_SESSIONS_FILE, 'r') as f:
+            data = json.load(f)
+        for uid_str, addrs in data.get('history', {}).items():
+            uid = int(uid_str)
+            _email_history[uid] = addrs
+        for uid_str, sd in data.get('sessions', {}).items():
+            uid = int(uid_str)
+            sess = get_sess(uid)
+            sess.email_session = sd.get('email_session')
+            sess.email_address = sd.get('email_address')
+            sess.email_addr_id = sd.get('email_addr_id')
+            sess.email_restore = sd.get('email_restore')
+            sess.email_last_id = sd.get('email_last_id')
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning(f'_load_email_sessions: {e}')
+
+
 # ── Email: polling loop ────────────────────────────────────────────────────────
 async def _email_poll_loop(client: Client, uid: int, cid: int):
     no_sess_retries = 0
@@ -1242,6 +1286,7 @@ if _inspect.iscoroutinefunction(app.start):
 else:
     app.start()
 
+_load_email_sessions()
 logger.info('🤖 Bot កំពុង Start...')
 _run(_idle())
 
