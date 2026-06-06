@@ -17,3 +17,12 @@ pyrogram
 qrcode[pil]
 requests
 TgCrypto
+httpx
+kurigram==2.2.23
+numpy
+opencv-python-headless
+Pillow
+PyMuPDF
+qrcode[pil]
+requests
+TgCrypto
