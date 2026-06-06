@@ -491,7 +491,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         sess.state = S_QR; return
 
     # ── email ───────────────────────────────────────────────────────────────
-    if d in ('email', 'email_new', 'email_list', 'email_delete'):
+    if d in ('email', 'email_new', 'email_list', 'email_delete') or d.startswith('email_del_'):
         async def _edit(text, kb=None):
             try:
                 await query.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
@@ -506,6 +506,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await handle_email_list(client, sess, cid, _edit, uid)
         elif d == 'email_delete':
             await handle_email_delete(client, sess, cid, _edit, uid)
+        elif d.startswith('email_del_'):
+            await handle_email_delete_one(client, sess, cid, _edit, uid, d[len('email_del_'):])
         sess.state = S_EMAIL; return
 
     # ── rmbg ────────────────────────────────────────────────────────────────
@@ -924,13 +926,44 @@ async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn
         )
         return
     lines = [
-        f'{i}. <code>{addr}</code>  ✅ <b>Active</b>'
+        f'{i}. <code>{addr}</code>'
         for i, addr in enumerate(reversed(history), 1)
     ]
+    rows = [
+        [InlineKeyboardButton(addr, copy_text=addr),
+         ikb('🗑', f'email_del_{addr}')]
+        for addr in reversed(history)
+    ]
+    rows.append([ikb('✉️ Email ថ្មី', 'email_new')])
+    rows.append([InlineKeyboardButton('Back', callback_data='home',
+                                      icon_custom_emoji_id='5877629862306385808')])
     await edit_fn(
-        f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n' + '\n'.join(lines),
-        email_kb()
+        f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n'
+        + '\n'.join(lines)
+        + '\n\n👆 ចុច address ចម្លង · ចុច 🗑 ដើម្បីលុប',
+        mkb(rows)
     )
+
+async def handle_email_delete_one(client: Client, sess: UserSession, cid: int,
+                                   edit_fn, uid: int, addr: str):
+    if addr not in _email_history.get(uid, []):
+        await edit_fn('❌ <b>រកមិនឃើញ Email នេះទេ។</b>', email_kb())
+        return
+    if sess.email_address == addr:
+        stop_email_polling(uid)
+        if sess.email_addr_id:
+            loop = asyncio.get_running_loop()
+            try:
+                await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id)
+            except Exception as e:
+                logger.warning(f'email_delete_one uid={uid}: {e}')
+        sess.email_session = None
+        sess.email_address = None
+        sess.email_addr_id = None
+        sess.email_restore = None
+        sess.email_last_id = None
+    _history_remove(uid, addr)
+    await handle_email_list(client, sess, cid, edit_fn, uid)
 
 async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     if not sess.email_address and not sess.email_addr_id:
