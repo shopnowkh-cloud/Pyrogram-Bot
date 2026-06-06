@@ -268,12 +268,12 @@ async def safe_delete(client: Client, cid: int, mid: int):
 # ── Keyboards ──────────────────────────────────────────────────────────────────
 def main_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [InlineKeyboardButton('រចនាបថអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942')],
-        [InlineKeyboardButton('PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
-        [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
-        [InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
-        [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
-        [InlineKeyboardButton('Email Temporary', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
+        [InlineKeyboardButton('រចនាបទអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942')],
+        [InlineKeyboardButton('បំប្លែង PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
+        [InlineKeyboardButton('បង្កើតកូដ QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
+        [InlineKeyboardButton('តម្លៃមាសពិភពលោក', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
+        [InlineKeyboardButton('លុបផ្ទៃខាងក្រោយ', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
+        [InlineKeyboardButton('អ៊ីមែលបណ្ដោះអាសន្ន', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
