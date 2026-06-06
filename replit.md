@@ -1,14 +1,27 @@
-# Workspace
+# RADY BOT
 
 ## Overview
 
-Telegram Bot built with Python and Pyrogram MTProto.
+A multi-purpose Telegram Bot built with Python and Pyrogram (MTProto).
 
-## Telegram Bot
+## Features
+- Text styling (Bold, Italic, Script, Bubble, Upside-down, etc.)
+- PDF utilities (images → PDF, PDF → PNG/JPG)
+- QR code generation and scanning
+- Gold/Silver/Platinum spot price tracking
+- Background removal via remove.bg API
 
-- **Location**: `telegram-bot/bot.py`
-- **Library**: Pyrogram 2.0.106 (MTProto, not Bot API) + TgCrypto
+## Bot
+
+- **Entry point**: `bot.py`
+- **Library**: Pyrofork 2.3.69 (MTProto) + TgCrypto
 - **Runtime**: Python 3.11
-- **Workflow**: "Telegram Bot" — runs `cd telegram-bot && python bot.py`
-- **Secrets**: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_BOT_TOKEN`
-- **Commands**: `/start`, `/help`, `/echo <text>`, plain text echo
+- **Workflow**: "Telegram Bot" — runs `python bot.py`
+
+## Secrets Required
+- `TELEGRAM_API_ID` — Telegram API ID (from my.telegram.org)
+- `TELEGRAM_API_HASH` — Telegram API hash (from my.telegram.org)
+- `TELEGRAM_BOT_TOKEN` — Bot token (from @BotFather)
+- `REMOVE_BG_API_KEY` — remove.bg API key (from remove.bg/api)
+
+## User Preferences
