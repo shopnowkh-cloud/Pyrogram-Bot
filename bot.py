@@ -914,7 +914,6 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
         mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
             [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
-            [ikb('🗑 លុប Email', 'email_delete')],
             [InlineKeyboardButton('Back', callback_data='home',
                                   icon_custom_emoji_id='5877629862306385808')],
         ])
