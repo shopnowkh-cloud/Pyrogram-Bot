@@ -18,6 +18,7 @@ from pyrogram.enums import ParseMode, ButtonStyle
 from pyrogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
+    LabeledPrice, PreCheckoutQuery,
 )
 
 # ── Logger ─────────────────────────────────────────────────────────────────────
@@ -569,12 +570,33 @@ async def cb_handler(client: Client, query: CallbackQuery):
     # ── donate ──────────────────────────────────────────────────────────────
     if d == 'donate':
         await edit_or_send(client, sess, cid,
-            '💝 <b>Donate</b>\n\n'
-            'សូមអរគុណចំពោះការគាំទ្រ!\n\n'
-            '💎 <b>TON:</b>\n<code>YOUR_TON_ADDRESS_HERE</code>\n\n'
-            '☕ <b>តម្លៃ Coffee មួយកែវ</b> គឺជាការជួយ Bot នេះឱ្យដំណើរការបន្ត 🙏',
-            mkb([[InlineKeyboardButton('Back', callback_data='home',
-                                       icon_custom_emoji_id='5877629862306385808')]]))
+            '⭐ <b>Donate Star</b>\n\n'
+            'សូមអរគុណចំពោះការគាំទ្រ RADY Bot!\n'
+            'ជ្រើសរើសចំនួន Star ដែលអ្នកចង់ Donate 👇',
+            mkb([
+                [ikb('⭐ 1 Star',   'donate_1')],
+                [ikb('⭐ 5 Stars',  'donate_5')],
+                [ikb('⭐ 10 Stars', 'donate_10')],
+                [ikb('⭐ 50 Stars', 'donate_50')],
+                [ikb('⭐ 100 Stars','donate_100')],
+                [InlineKeyboardButton('Back', callback_data='home',
+                                      icon_custom_emoji_id='5877629862306385808')],
+            ]))
+        sess.state = S_MAIN; return
+
+    if d.startswith('donate_'):
+        try:
+            amount = int(d.split('_')[1])
+        except Exception:
+            return
+        await client.send_invoice(
+            chat_id=cid,
+            title='⭐ Donate to RADY Bot',
+            description=f'Donate {amount} Star{"s" if amount > 1 else ""} ដើម្បីគាំទ្រ RADY Bot 🙏',
+            payload=f'donate_{amount}',
+            currency='XTR',
+            prices=[LabeledPrice(label=f'{amount} Star{"s" if amount > 1 else ""}', amount=amount)],
+        )
         sess.state = S_MAIN; return
 
     # ── unknown → home ──────────────────────────────────────────────────────
@@ -1188,6 +1210,22 @@ async def handle_fallback(client: Client, message: Message, sess: UserSession):
     msg = await client.send_message(cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
     save_msg(sess, cid, msg.id)
 
+
+# ── Stars: pre-checkout ────────────────────────────────────────────────────────
+@app.on_pre_checkout_query()
+async def pre_checkout_handler(client: Client, query: PreCheckoutQuery):
+    await query.answer(ok=True)
+
+# ── Stars: successful payment ───────────────────────────────────────────────────
+@app.on_message(filters.successful_payment & filters.private)
+async def payment_success(client: Client, message: Message):
+    stars = message.successful_payment.total_amount
+    await message.reply(
+        f'🎉 <b>អរគុណខ្លាំងណាស់!</b>\n\n'
+        f'អ្នកបាន Donate <b>{stars} ⭐ Star{"s" if stars > 1 else ""}</b> ជូន RADY Bot!\n\n'
+        f'ការគាំទ្ររបស់អ្នកជួយឱ្យ Bot នេះបន្តដំណើរការ 🙏',
+        parse_mode=ParseMode.HTML,
+    )
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 logger.info('🤖 Bot កំពុង Start...')
