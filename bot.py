@@ -42,12 +42,11 @@ def _save_email_sessions(data: dict):
         logger.warning(f'email_sessions save: {e}')
 
 def _email_sess_persist(uid: int, sess) -> None:
+    """Persist only email + restore_key. Session is always re-discovered via Dropmail API."""
     data = _load_email_sessions()
     data[str(uid)] = {
         'email':       sess.email_address,
         'restore_key': sess.email_restore,
-        'address_id':  sess.email_addr_id,
-        'session_id':  sess.email_session,
     }
     _save_email_sessions(data)
 
@@ -119,12 +118,11 @@ _sessions: dict[int, UserSession] = {}
 def get_sess(uid: int) -> UserSession:
     if uid not in _sessions:
         sess = UserSession()
+        # Load only email + restore_key from disk — session_id is re-discovered via Dropmail API
         saved = _load_email_sessions().get(str(uid))
         if saved and saved.get('email') and saved.get('restore_key'):
             sess.email_address = saved['email']
             sess.email_restore = saved['restore_key']
-            sess.email_addr_id = saved.get('address_id')
-            sess.email_session = saved.get('session_id')
         _sessions[uid] = sess
     return _sessions[uid]
 
@@ -861,43 +859,40 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
         loop = asyncio.get_running_loop()
         try:
             mails = await loop.run_in_executor(
-                None, dropmail.get_new_mails, sess.email_session, sess.email_last_id
+                None, dropmail.get_new_mails, sess.email_session, uid, sess.email_last_id
             )
         except Exception as e:
             logger.warning(f'email_poll uid={uid}: {e}')
             continue
-        # Session expired — attempt restore
+        # Session expired — attempt recovery
         if mails is None:
             try:
-                restored = await loop.run_in_executor(
-                    None, dropmail.restore_session, sess.email_address, sess.email_restore
+                # First: try find_user_sessions (session may still be alive under user's token)
+                live = await loop.run_in_executor(
+                    None, dropmail.find_session_by_address, sess.email_address, uid
                 )
-                if restored and not restored.get('already_in_use'):
-                    sess.email_session = restored['session_id']
-                    sess.email_addr_id = restored.get('address_id')
-                    sess.email_restore = restored.get('restore_key')
+                if live:
+                    sess.email_session = live['session_id']
+                    sess.email_addr_id = live.get('address_id')
+                    if live.get('restore_key'):
+                        sess.email_restore = live['restore_key']
                     _email_sess_persist(uid, sess)
+                    logger.info(f'email_poll uid={uid}: recovered session via find_user_sessions')
                     mails = await loop.run_in_executor(
-                        None, dropmail.get_new_mails, sess.email_session, sess.email_last_id
+                        None, dropmail.get_new_mails, sess.email_session, uid, sess.email_last_id
                     )
                 else:
-                    # already_in_use — try find_session_by_address to recover live session
-                    live = None
-                    try:
-                        live = await loop.run_in_executor(
-                            None, dropmail.find_session_by_address, sess.email_address
-                        )
-                    except Exception:
-                        pass
-                    if live:
-                        sess.email_session = live['session_id']
-                        sess.email_addr_id = live.get('address_id')
-                        if live.get('restore_key'):
-                            sess.email_restore = live['restore_key']
+                    # Session truly gone from Dropmail — restore from key
+                    restored = await loop.run_in_executor(
+                        None, dropmail.restore_session, sess.email_address, sess.email_restore, uid
+                    )
+                    if restored and not restored.get('already_in_use'):
+                        sess.email_session = restored['session_id']
+                        sess.email_addr_id = restored.get('address_id')
+                        sess.email_restore = restored.get('restore_key')
                         _email_sess_persist(uid, sess)
-                        logger.info(f'email_poll uid={uid}: recovered session via find_session_by_address')
                         mails = await loop.run_in_executor(
-                            None, dropmail.get_new_mails, sess.email_session, sess.email_last_id
+                            None, dropmail.get_new_mails, sess.email_session, uid, sess.email_last_id
                         )
                     else:
                         # Truly expired — stop polling and notify user
@@ -970,21 +965,13 @@ async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn
         if uid not in _polling_tasks:
             loop = asyncio.get_running_loop()
             live = None
-            if sess.email_session:
-                try:
-                    live = await loop.run_in_executor(
-                        None, dropmail.check_session, sess.email_session
-                    )
-                except Exception:
-                    live = None
-            # Fallback: search all active sessions for this address
-            if not live:
-                try:
-                    live = await loop.run_in_executor(
-                        None, dropmail.find_session_by_address, addr
-                    )
-                except Exception:
-                    live = None
+            # Use user-specific token: find_user_sessions only returns this user's sessions
+            try:
+                live = await loop.run_in_executor(
+                    None, dropmail.find_session_by_address, addr, uid
+                )
+            except Exception:
+                live = None
             if live:
                 sess.email_session = live['session_id']
                 sess.email_addr_id = live.get('address_id') or sess.email_addr_id
@@ -1008,7 +995,7 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     await edit_fn('⏳ <b>កំពុងបង្កើត Email...</b>')
     loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(None, dropmail.create_session)
+        result = await loop.run_in_executor(None, dropmail.create_session, uid)
     except Exception as e:
         await edit_fn(f'❌ <b>បង្កើតមិនបាន:</b> {e}', email_kb())
         return
@@ -1075,7 +1062,7 @@ async def handle_email_delete_one(client: Client, sess: UserSession, cid: int,
         if sess.email_addr_id:
             loop = asyncio.get_running_loop()
             try:
-                await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id)
+                await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id, uid)
             except Exception as e:
                 logger.warning(f'email_delete_one uid={uid}: {e}')
         sess.email_session = None
@@ -1106,7 +1093,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
     m = await client.send_message(cid, '⏳ <b>កំពុង Restore...</b>', parse_mode=ParseMode.HTML)
     loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(None, dropmail.restore_session, addr, key)
+        result = await loop.run_in_executor(None, dropmail.restore_session, addr, key, uid)
     except Exception as e:
         await m.edit_text(f'❌ <b>Restore មិនបាន:</b> {e}',
                           reply_markup=email_kb(), parse_mode=ParseMode.HTML)
@@ -1115,26 +1102,15 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
         await m.edit_text('❌ <b>Restore Key មិនត្រឹមត្រូវ ឬ Email បានផុតកំណត់ហើយ។</b>',
                           reply_markup=email_kb(), parse_mode=ParseMode.HTML)
         sess.state = S_EMAIL; return
-    # Email is still active on Dropmail — try to resume existing session from disk
+    # Email still active on Dropmail — find live session via user-specific token
     if result.get('already_in_use'):
-        # Address still active — find the live session via check_session or find_session_by_address
         live = None
-        saved = _load_email_sessions().get(str(uid))
-        if saved and saved.get('session_id') and saved.get('email') == addr:
-            try:
-                live = await loop.run_in_executor(
-                    None, dropmail.check_session, saved['session_id']
-                )
-            except Exception:
-                live = None
-        # Fallback: search all active sessions
-        if not live:
-            try:
-                live = await loop.run_in_executor(
-                    None, dropmail.find_session_by_address, addr
-                )
-            except Exception:
-                live = None
+        try:
+            live = await loop.run_in_executor(
+                None, dropmail.find_session_by_address, addr, uid
+            )
+        except Exception:
+            live = None
         if live:
             sess.email_session = live['session_id']
             sess.email_address = live['email']
@@ -1199,7 +1175,7 @@ async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_
     loop = asyncio.get_running_loop()
     if sess.email_addr_id:
         try:
-            await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id)
+            await loop.run_in_executor(None, dropmail.delete_address, sess.email_addr_id, uid)
         except Exception as e:
             logger.warning(f'email_delete uid={uid}: {e}')
     if sess.email_address:
