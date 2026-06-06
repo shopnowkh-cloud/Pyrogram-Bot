@@ -91,8 +91,8 @@ def save_msg(sess: UserSession, cid: int, mid: int):
 def mkb(rows: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
-def ikb(text: str, cb: str) -> InlineKeyboardButton:
-    return InlineKeyboardButton(text, callback_data=cb)
+def ikb(text: str, cb: str, style: ButtonStyle = ButtonStyle.DEFAULT) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text, callback_data=cb, style=style)
 
 def ikb_url(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text, url=url)
@@ -494,7 +494,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         await edit('⏳ <b>កំពុងទាញតម្លៃ...</b>')
         try:
             spots = await fetch_all_spots()
-            IK_LIVE = mkb([[ikb('🔄 ធ្វើបន្ទាប់', 'gold_live')], [ikb('🏠 ម៉ឺនុយមេ', 'home')]])
+            IK_LIVE = mkb([[ikb('🔄 ធ្វើបន្ទាប់', 'gold_live', ButtonStyle.SUCCESS)], [ikb('🏠 ម៉ឺនុយមេ', 'home')]])
             txt = (
                 '📊 <b>ហាងឆេងឥឡូវនេះ (ពិភពលោក)</b>\n'
                 + fmt_price(spots['gold'],   'មាស',    '🥇', spots['gold_chg'],   spots['gold_pct'])   + '\n'
@@ -552,7 +552,7 @@ async def handle_style(client: Client, message: Message, sess: UserSession):
 
     pairs = await loop.run_in_executor(None, compute)
     rows = [[InlineKeyboardButton(styled, copy_text=styled, style=ButtonStyle.SUCCESS)] for _, styled in pairs]
-    rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new'), ikb('🏠 ម៉ឺនុយមេ', 'home')])
+    rows.append([ikb('✍️ ដំណើរការថ្មី', 'style_new', ButtonStyle.SUCCESS), ikb('🏠 ម៉ឺនុយមេ', 'home')])
 
     await safe_delete(client, cid, message.id)
 
