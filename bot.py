@@ -845,18 +845,18 @@ async def _email_poll_loop(client: Client, uid: int, cid: int):
         if not mails:
             continue
         for mail in mails:
-            subj    = mail.get('headerSubject') or '(គ្មានប្រធានបទ)'
-            sender  = mail.get('fromAddr')      or 'unknown'
-            body    = (mail.get('text') or '').strip()
-            preview = body[:500] + '…' if len(body) > 500 else body
+            subj   = mail.get('headerSubject') or ''
+            sender = mail.get('fromAddr')      or ''
+            to     = mail.get('toAddr')        or sess.email_address or ''
+            body   = (mail.get('text') or '').strip()
             try:
                 await client.send_message(
                     cid,
-                    f'📬 <b>Email ថ្មីចូល!</b>\n\n'
-                    f'<b>ប្រធានបទ:</b> {subj}\n'
-                    f'<b>ពី:</b> <code>{sender}</code>\n'
-                    f'━━━━━━━━━━━━━━━━━━\n'
-                    f'{preview or "<i>(ទទេ)</i>"}',
+                    f'📨 <b>new email</b>\n'
+                    f'Subject: {subj}\n'
+                    f'From: {sender}\n'
+                    f'To: {to}\n\n'
+                    f'{body or "<i>(ទទេ)</i>"}',
                     parse_mode=ParseMode.HTML,
                 )
             except Exception as se:
