@@ -1,4 +1,4 @@
-pyrofork==2.3.69
+kurigram==2.2.23
 TgCrypto==1.2.5
 Pillow>=10.0.0
 qrcode[pil]>=7.4.2
@@ -6,12 +6,3 @@ opencv-python-headless>=4.8.0
 numpy>=1.24.0
 PyMuPDF>=1.23.0
 httpx>=0.25.0
-httpx>=0.25.0
-numpy>=1.24.0
-opencv-python-headless>=4.8.0
-Pillow>=10.0.0
-PyMuPDF>=1.23.0
-pyrofork==2.3.69
-pyrogram
-qrcode[pil]>=7.4.2
-TgCrypto==1.2.5

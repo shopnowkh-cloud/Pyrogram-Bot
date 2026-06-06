@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Smoke-test every critical import so a broken dep fails at build time, not runtime
 RUN python -c "\
 import pyrogram; \
+from pyrogram.types import InlineKeyboardButton; \
+b = InlineKeyboardButton('test', callback_data='t', icon_custom_emoji_id='123'); \
 from PIL import Image; \
 import qrcode; \
 import cv2; \
