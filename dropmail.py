@@ -1,34 +1,20 @@
 #!/usr/bin/env python3
 import os
-import hmac
-import hashlib
 import logging
 import requests
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def get_user_token(uid: int) -> str:
-    """
-    Derive a stable, unique Dropmail API token for a Telegram user.
-    Uses HMAC-SHA256 keyed by the bot token so it's user-specific and unforgeable.
-    """
-    key = os.environ.get("TELEGRAM_BOT_TOKEN", "rady_bot_secret").encode()
-    msg = f"dropmail_user_{uid}".encode()
-    return hmac.new(key, msg, hashlib.sha256).hexdigest()[:40]
-
-def _get_url(uid: Optional[int] = None) -> str:
-    if uid is not None:
-        token = get_user_token(uid)
-    else:
-        token = os.environ.get("DROPMAIL_API_TOKEN", "")
+def _get_url() -> str:
+    token = os.environ.get("DROPMAIL_API_TOKEN", "")
     return f"https://dropmail.me/api/graphql/{token}"
 
 def _gql(query: str, variables: Optional[dict] = None, uid: Optional[int] = None) -> dict:
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
-    resp = requests.post(_get_url(uid), json=payload, timeout=15)
+    resp = requests.post(_get_url(), json=payload, timeout=15)
     resp.raise_for_status()
     return resp.json()
 

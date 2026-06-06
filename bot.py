@@ -925,25 +925,19 @@ def email_kb() -> InlineKeyboardMarkup:
 # ── Email: handlers ────────────────────────────────────────────────────────────
 async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
     loop = asyncio.get_running_loop()
-    # Auto-discover active sessions if not polling
-    if uid not in _polling_tasks:
+    # Auto-resume polling only when we already know this user's email (in-memory)
+    if sess.email_address and uid not in _polling_tasks:
         try:
-            user_sessions = await loop.run_in_executor(None, dropmail.find_user_sessions, uid)
+            live = await loop.run_in_executor(
+                None, dropmail.find_session_by_address, sess.email_address, uid
+            )
         except Exception:
-            user_sessions = []
-        if user_sessions:
-            # Match remembered address, or take the first active session
             live = None
-            if sess.email_address:
-                live = next((s for s in user_sessions if s['email'] == sess.email_address), None)
-            if not live:
-                live = user_sessions[0]
+        if live:
             sess.email_session = live['session_id']
-            sess.email_address = live['email']
             sess.email_addr_id = live.get('address_id')
             if live.get('restore_key'):
                 sess.email_restore = live['restore_key']
-            _history_add(uid, sess.email_address)
             start_email_polling(client, uid, cid)
     if sess.email_address:
         addr = sess.email_address
