@@ -207,7 +207,17 @@ TEXT_STYLES = [
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 HOME_TEXT = (
-    '<tg-emoji emoji-id="5449885771420934013">🌱</tg-emoji> <b>RADY BOT</b>'
+    '<tg-emoji emoji-id="5449885771420934013">🌱</tg-emoji> <b>RADY BOT</b>\n\n'
+    'សូមស្វាគមន៍មកកាន់ <b>RADY BOT</b>!\n'
+    'Bot ជំនួយការសម្រាប់ការងារប្រចាំថ្ងៃ\n\n'
+    '✨ <b>មុខងារ</b>\n'
+    '• រចនាបថអក្សរ — ផ្លាស់ប្ដូររូបភាពអក្សរ\n'
+    '• PDF — បំប្លែងរូបភាពជា PDF និងច្រាសវិញ\n'
+    '• QR Code — បង្កើត និងស្កេនកូដ QR\n'
+    '• ហាងឆេងមាស — តម្លៃមាស ប្រាក់ ផ្លាទីន\n'
+    '• Remove BG — លុបផ្ទៃខាងក្រោយរូបភាព\n'
+    '• Email — អ៊ីមែលបណ្ដោះអាសន្នឥតគិតថ្លៃ\n\n'
+    '👇 <b>ជ្រើសរើសមុខងារខាងក្រោម</b>'
 )
 
 # ── Gold price ─────────────────────────────────────────────────────────────────
@@ -268,12 +278,12 @@ async def safe_delete(client: Client, cid: int, mid: int):
 # ── Keyboards ──────────────────────────────────────────────────────────────────
 def main_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [InlineKeyboardButton('រចនាបទអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942')],
-        [InlineKeyboardButton('បំប្លែង PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
-        [InlineKeyboardButton('បង្កើតកូដ QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
-        [InlineKeyboardButton('តម្លៃមាសពិភពលោក', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
-        [InlineKeyboardButton('លុបផ្ទៃខាងក្រោយ', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
-        [InlineKeyboardButton('អ៊ីមែលបណ្ដោះអាសន្ន', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
+        [InlineKeyboardButton('រចនាបថអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942')],
+        [InlineKeyboardButton('PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
+        [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
+        [InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
+        [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
+        [InlineKeyboardButton('Email Temporary', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
