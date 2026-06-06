@@ -26,3 +26,4 @@ PyMuPDF
 qrcode[pil]
 requests
 TgCrypto
+google-genai
