@@ -962,9 +962,7 @@ async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn
         return
     lines = []
     for i, addr in enumerate(reversed(history), 1):
-        active = addr == sess.email_address
-        mark = '✅ <b>(Active)</b>' if active else '⏹'
-        lines.append(f'{i}. <code>{addr}</code>  {mark}')
+        lines.append(f'{i}. <code>{addr}</code>  ✅ <b>Active</b>')
     text = f'📋 <b>Email ទាំងអស់ ({len(history)})</b>\n\n' + '\n'.join(lines)
     await edit_fn(text, email_view_kb())
 
