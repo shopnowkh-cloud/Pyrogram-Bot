@@ -209,14 +209,9 @@ TEXT_STYLES = [
 # ── Constants ──────────────────────────────────────────────────────────────────
 HOME_TEXT = (
     'សូមស្វាគមន៍មកកាន់ <b>RADY Bot</b> 🌱\n\n'
-    '✨ <b>មុខងារ</b>\n'
-    '• រចនាបថអក្សរ — ផ្លាស់ប្ដូររូបភាពអក្សរ\n'
-    '• PDF — បំប្លែងរូបភាពជា PDF និងច្រាសវិញ\n'
-    '• QR Code — បង្កើត និងស្កេនកូដ QR\n'
-    '• ហាងឆេងមាស — តម្លៃមាស ប្រាក់ ផ្លាទីន\n'
-    '• Remove BG — លុបផ្ទៃខាងក្រោយរូបភាព\n'
-    '• Email — អ៊ីមែលបណ្ដោះអាសន្នឥតគិតថ្លៃ\n\n'
-    '👇 <b>ជ្រើសរើសមុខងារខាងក្រោម</b>'
+    'នៅទីនេះ អ្នកអាចប្រើប្រាស់មុខងារជា ដែលមានប្រយោជន៍សម្រាប់ជីវិតប្រចាំថ្ងៃ។\n\n'
+    '🖥 <b>មុខងារ:</b> រចនាបថអក្សរ បំប្លែង PDF បង្កើត QR Code '
+    'ហាងឆេងមាស Remove BG និង Email Temporary...'
 )
 
 # ── Gold price ─────────────────────────────────────────────────────────────────
@@ -1298,11 +1293,21 @@ async def payment_success(client: Client, message: Message):
     )
 
 # ── Run ────────────────────────────────────────────────────────────────────────
-async def main():
-    async with app:
-        logger.info('🤖 Bot កំពុង Start...')
-        await restore_email_sessions_on_startup(app)
-        from pyrogram.idle import idle
-        await idle()
+import inspect as _inspect
+from pyrogram.methods.utilities.idle import idle as _idle
 
-asyncio.run(main())
+_run = app.loop.run_until_complete
+
+if _inspect.iscoroutinefunction(app.start):
+    _run(app.start())
+else:
+    app.start()
+
+logger.info('🤖 Bot កំពុង Start...')
+_run(restore_email_sessions_on_startup(app))
+_run(_idle())
+
+if _inspect.iscoroutinefunction(app.stop):
+    _run(app.stop())
+else:
+    app.stop()
