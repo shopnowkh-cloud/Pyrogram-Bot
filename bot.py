@@ -282,6 +282,7 @@ def main_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
         [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
         [InlineKeyboardButton('Email Temporary', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
+        [InlineKeyboardButton('Donate', callback_data='donate', icon_custom_emoji_id='5897474556834091884')],
     ])
 
 def cancel_kb(data: str) -> InlineKeyboardMarkup:
