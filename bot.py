@@ -909,11 +909,17 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     sess.email_last_id = None
     _history_add(uid, result['email'])
     start_email_polling(client, uid, cid)
+    addr = result['email']
     await edit_fn(
         f'✅ <b>Email ថ្មីបានបង្កើត!</b>\n\n'
-        f'<code>{result["email"]}</code>\n\n'
-        f'👆 ចុចចម្លង · Bot ជូន Email ចូលស្វ័យប្រវត្តិ 🔔',
-        email_kb()
+        f'🔔 Bot ជូន Email ចូលស្វ័យប្រវត្តិ',
+        mkb([
+            [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
+            [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
+            [ikb('🗑 លុប Email', 'email_delete')],
+            [InlineKeyboardButton('Back', callback_data='home',
+                                  icon_custom_emoji_id='5877629862306385808')],
+        ])
     )
 
 async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn, uid: int):
