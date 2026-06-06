@@ -264,7 +264,7 @@ _CANCEL_EMOJI = '5877629862306385808'
 _API = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}"
 
 def cancel_btn(data: str) -> dict:
-    return {'text': 'បោះបង់', 'callback_data': data, 'icon_custom_emoji_id': _CANCEL_EMOJI}
+    return {'text': ' ', 'callback_data': data, 'icon_custom_emoji_id': _CANCEL_EMOJI}
 
 def cancel_kb(data: str) -> list:
     return [[cancel_btn(data)]]
