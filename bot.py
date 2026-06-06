@@ -1198,14 +1198,6 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
                 f'✅ <b>Email Resume ស្វ័យប្រវត្តិ!</b>\n\n'
                 f'📋 <code>{sess.email_address}</code>\n'
                 f'🔑 <b>Restore Key:</b> <code>{sess.email_restore}</code>',
-                reply_markup=mkb([
-                    [InlineKeyboardButton(f'📋 {sess.email_address}', copy_text=sess.email_address)],
-                    [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
-                    [ikb('✉️ Email ថ្មី', 'email_new')],
-                    [ikb('📋 បញ្ជី Email', 'email_list')],
-                    [InlineKeyboardButton('Back', callback_data='home',
-                                          icon_custom_emoji_id='5877629862306385808')],
-                ]),
                 parse_mode=ParseMode.HTML)
         else:
             # Session truly gone — clear in-memory state
