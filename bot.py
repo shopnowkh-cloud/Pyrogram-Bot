@@ -788,7 +788,7 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
 _polling_tasks: dict[int, asyncio.Task] = {}
 
 async def _email_poll_loop(client: Client, uid: int, cid: int):
-    INTERVAL = 20
+    INTERVAL = 3
     while True:
         await asyncio.sleep(INTERVAL)
         sess = get_sess(uid)
