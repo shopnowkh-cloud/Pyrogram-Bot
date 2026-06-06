@@ -6,7 +6,7 @@ import json
 import logging
 import asyncio
 import tempfile
-import zipfile
+
 import httpx
 from gradio_client import Client as GradioClient
 from dataclasses import dataclass, field
@@ -737,32 +737,35 @@ async def cb_handler(client: Client, query: CallbackQuery):
         return
 
     if d == 'ar_clone':
-        sess.state    = S_AR
+        sess.state     = S_AR
         sess.ar_adding = False
-        await edit('⏳ <b>កំពុង generate package...</b>', mkb([[ikb('❌ បោះបង់', 'ar_back')]]))
-        zip_buf = _generate_ar_zip()
         IK_CLONE = mkb([
-            [ikb_url('🚀 Render Dashboard', 'https://dashboard.render.com/select-repo')],
-            [ikb_url('📂 Source GitHub', 'https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
+            [ikb_url('☁️ Deploy — Cloudflare (Free)',
+                     'https://deploy.workers.cloudflare.com/?url=https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
+            [ikb_url('▲ Deploy — Vercel (Free)',
+                     'https://vercel.com/new/clone?repository-url=https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
+            [ikb_url('🚀 Deploy — Render',
+                     'https://render.com/deploy?repo=https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
+            [ikb_url('📂 Source Code — GitHub',
+                     'https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
             [ikb('🔙 ត្រឡប់', 'ar_back')],
         ])
-        await client.send_document(
-            cid, zip_buf,
-            caption=(
-                '📦 <b>auto-react-bot.zip</b> — Ready to Deploy on Render!\n\n'
-                '<b>📋 ជំហានដំឡើង:</b>\n'
-                '1️⃣ Extract ZIP → Upload GitHub repo\n'
-                '2️⃣ Render Dashboard → <b>New → Background Worker</b>\n'
-                '3️⃣ Connect repo → Runtime: <b>Docker</b>\n'
-                '4️⃣ Add Environment Variables:\n'
-                '   • <code>BOT_TOKEN</code> ← ពី @BotFather\n'
-                '   • <code>API_ID</code> ← ពី my.telegram.org\n'
-                '   • <code>API_HASH</code> ← ពី my.telegram.org\n'
-                '5️⃣ Deploy! 🎉\n\n'
-                '📌 <code>ENABLED_CHATS</code> / <code>RANDOM_LEVEL</code> — optional'
-            ),
-            reply_markup=IK_CLONE,
-            parse_mode=ParseMode.HTML)
+        await edit(
+            '📋 <b>Clone Auto-React Bot</b>\n\n'
+            '🔗 Source: <a href="https://github.com/Malith-Rukshan/Auto-Reaction-Bot">GitHub — Malith-Rukshan/Auto-Reaction-Bot</a>\n\n'
+            '<b>⚙️ Environment Variables ដែលត្រូវ Set:</b>\n\n'
+            '• <code>BOT_TOKEN</code>\n'
+            '  └ Token ពី @BotFather\n\n'
+            '• <code>BOT_USERNAME</code>\n'
+            '  └ Username bot (គ្មាន @) ឧ. <code>mybot</code>\n\n'
+            '• <code>EMOJI_LIST</code>\n'
+            '  └ Emoji ដែល react ឧ. <code>👍❤🔥🥰👏😁🎉🤩🙏👌</code>\n\n'
+            '• <code>RANDOM_LEVEL</code>\n'
+            '  └ <code>0</code>=100% · <code>5</code>=50% · <code>10</code>=0%\n\n'
+            '• <code>RESTRICTED_CHATS</code> <i>(optional)</i>\n'
+            '  └ Chat IDs មិន react ឧ. <code>-1001234,-9876</code>\n\n'
+            '👇 ចុចប៊ូតុងខាងក្រោម deploy ភ្លាម:',
+            IK_CLONE)
         return
 
     # ── unknown → home ──────────────────────────────────────────────────────
@@ -1099,162 +1102,6 @@ async def handle_fallback(client: Client, message: Message, sess: UserSession):
     save_msg(sess, cid, m.id)
 
 # ── Auto-React handler (DM text/forward) ───────────────────────────────────────
-def _generate_ar_zip() -> io.BytesIO:
-    BOT_PY = '''\
-import os, random, logging
-from pyrogram import Client, filters
-from pyrogram.types import Message
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s")
-logger = logging.getLogger(__name__)
-
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-API_ID    = int(os.environ["API_ID"])
-API_HASH  = os.environ["API_HASH"]
-
-EMOJIS = ["\\U0001f44d","\\u2764","\\U0001f525","\\U0001f970","\\U0001f44f",
-          "\\U0001f601","\\U0001f389","\\U0001f929","\\U0001f64f","\\U0001f44c",
-          "\\U0001f54a","\\U0001f60d","\\U0001f433","\\U0001f4af","\\u26a1","\\U0001f3c6"]
-
-RANDOM_LEVEL  = int(os.getenv("RANDOM_LEVEL", "0"))
-_env          = os.getenv("ENABLED_CHATS", "")
-ENABLED_CHATS = [int(x.strip()) for x in _env.split(",") if x.strip()]
-
-app = Client("ar_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-@app.on_message(
-    (filters.channel | filters.group) & ~filters.private, group=1)
-async def auto_react(client: Client, msg: Message):
-    if ENABLED_CHATS and msg.chat.id not in ENABLED_CHATS:
-        return
-    if random.random() > 1.0 - (RANDOM_LEVEL / 10.0):
-        return
-    try:
-        await client.send_reaction(msg.chat.id, msg.id,
-                                   emoji=random.choice(EMOJIS))
-        logger.info(f"Reacted to chat={msg.chat.id} msg={msg.id}")
-    except Exception as e:
-        logger.warning(f"react error: {e}")
-
-if __name__ == "__main__":
-    logger.info("Auto-React Bot started!")
-    app.run()
-'''
-
-    DOCKERFILE = '''\
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-CMD ["python", "bot.py"]
-'''
-
-    REQUIREMENTS = '''\
-pyrofork==2.3.69
-TgCrypto==1.2.6
-'''
-
-    RENDER_YAML = '''\
-services:
-  - type: worker
-    name: auto-react-bot
-    env: docker
-    dockerfilePath: ./Dockerfile
-    plan: free
-    envVars:
-      - key: BOT_TOKEN
-        sync: false
-      - key: API_ID
-        sync: false
-      - key: API_HASH
-        sync: false
-      - key: ENABLED_CHATS
-        value: ""
-      - key: RANDOM_LEVEL
-        value: "0"
-'''
-
-    ENV_EXAMPLE = '''\
-# Copy this file to .env for local testing (never commit .env!)
-BOT_TOKEN=1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-API_ID=12345678
-API_HASH=abcdef1234567890abcdef1234567890
-# Optional: comma-separated chat IDs to limit reactions
-# Leave empty to react in ALL channels/groups the bot is in
-ENABLED_CHATS=
-# 0 = react 100%  |  5 = react 50%  |  10 = never react
-RANDOM_LEVEL=0
-'''
-
-    GITIGNORE = '''\
-__pycache__/
-*.pyc
-*.session
-*.session-journal
-.env
-'''
-
-    README = '''\
-# Auto-Reaction Bot 🤖
-
-Auto-react emoji to every message in your Telegram channels/groups.
-
-## Deploy on Render (Docker)
-
-1. Push this folder to a **GitHub repo**
-2. Go to [Render Dashboard](https://dashboard.render.com) → **New → Background Worker**
-3. Connect your GitHub repo
-4. Runtime: **Docker** (auto-detected via `render.yaml`)
-5. Set these **Environment Variables**:
-
-| Key | Value |
-|-----|-------|
-| `BOT_TOKEN` | Get from [@BotFather](https://t.me/BotFather) |
-| `API_ID` | Get from [my.telegram.org](https://my.telegram.org) |
-| `API_HASH` | Get from [my.telegram.org](https://my.telegram.org) |
-| `ENABLED_CHATS` | *(optional)* comma-separated chat IDs, e.g. `-1001234567890,-1009876543210` |
-| `RANDOM_LEVEL` | *(optional)* `0`=react 100% · `5`=50% · `10`=never |
-
-6. Click **Deploy** — done! 🎉
-
-## Requirements
-
-- Bot must be **Admin** in the channel/group
-- Channel must have **Reactions enabled**
-
-## Local Testing
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env   # fill in your values
-python bot.py
-```
-
-## Source
-Based on [Auto-Reaction-Bot](https://github.com/Malith-Rukshan/Auto-Reaction-Bot)
-'''
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr('auto-react-bot/bot.py',          BOT_PY)
-        zf.writestr('auto-react-bot/Dockerfile',       DOCKERFILE)
-        zf.writestr('auto-react-bot/requirements.txt', REQUIREMENTS)
-        zf.writestr('auto-react-bot/render.yaml',      RENDER_YAML)
-        zf.writestr('auto-react-bot/.env.example',     ENV_EXAMPLE)
-        zf.writestr('auto-react-bot/.gitignore',       GITIGNORE)
-        zf.writestr('auto-react-bot/README.md',        README)
-    buf.seek(0)
-    buf.name = 'auto-react-bot.zip'
-    return buf
-
-
 async def handle_ar(client: Client, message: Message, sess: UserSession):
     cid = message.chat.id
     IK_AR_BACK = mkb([[ikb('🔙 ត្រឡប់', 'ar_back')]])
