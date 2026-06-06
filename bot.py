@@ -263,7 +263,7 @@ _STYLE_EMOJI = '5197269100878907942'
 def main_kb() -> list:
     return [
         [{'text': 'រចនាបទអក្សរ', 'callback_data': 'style', 'icon_custom_emoji_id': _STYLE_EMOJI},
-         {'text': '🗂️ PDF', 'callback_data': 'doc'}],
+         {'text': '🗂️ PDF', 'callback_data': 'doc', 'icon_custom_emoji_id': '5838982342122674517'}],
         [{'text': '📷 បង្កើត QR', 'callback_data': 'qr'},
          {'text': '🥇 ហាងឆេងមាស', 'callback_data': 'gold'}],
         [{'text': '🪄 Ai Remove BG', 'callback_data': 'rmbg'}],
