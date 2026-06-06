@@ -622,11 +622,35 @@ async def text_handler(client: Client, message: Message):
 
 
 # ── Photo / document dispatcher ────────────────────────────────────────────────
-@app.on_message(filters.incoming & (filters.photo | filters.document) & (filters.private | filters.business))
+@app.on_message(filters.incoming & (filters.photo | filters.document) & filters.private)
 async def media_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
-    sess.biz_conn_id = getattr(message, 'business_connection_id', None)
+    sess.biz_conn_id = None
+    if   sess.state == S_PDF:     await handle_pdf_photo(client, message, sess)
+    elif sess.state == S_PDF2IMG: await handle_pdf2img(client, message, sess)
+    elif sess.state == S_QR:      await handle_qr_scan(client, message, sess)
+    elif sess.state == S_RMBG:    await handle_rmbg(client, message, sess)
+    else:                         await handle_fallback(client, message, sess)
+
+
+# ── Business message handlers ───────────────────────────────────────────────────
+@app.on_business_message(filters.text & ~filters.command(['start']))
+async def biz_text_handler(client: Client, message: Message):
+    uid  = message.from_user.id
+    sess = get_sess(uid)
+    sess.biz_conn_id = message.business_connection_id
+    if   sess.state == S_STYLE:          await handle_style(client, message, sess)
+    elif sess.state == S_QR:             await handle_qr_create(client, message, sess)
+    elif sess.state == S_PDF_RENAME:     await handle_pdf_rename(client, message, sess)
+    elif sess.state == S_EMAIL_RESTORE:  await handle_email_restore_input(client, message, sess)
+    else:                                await handle_fallback(client, message, sess)
+
+@app.on_business_message(filters.photo | filters.document)
+async def biz_media_handler(client: Client, message: Message):
+    uid  = message.from_user.id
+    sess = get_sess(uid)
+    sess.biz_conn_id = message.business_connection_id
     if   sess.state == S_PDF:     await handle_pdf_photo(client, message, sess)
     elif sess.state == S_PDF2IMG: await handle_pdf2img(client, message, sess)
     elif sess.state == S_QR:      await handle_qr_scan(client, message, sess)
