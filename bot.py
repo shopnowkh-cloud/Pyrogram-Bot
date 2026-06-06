@@ -49,39 +49,6 @@ def record_rmbg_use(charged_str: str):
         pass
     _save_stats(stats)
 
-# ── Auto-Reaction storage ───────────────────────────────────────────────────────
-AR_FILE = 'autoreact.json'
-AR_DEFAULT_EMOJIS = ['👍','❤','🔥','🥰','👏','😁','🎉','🤩','🙏','👌','🕊','😍','🐳','💯','⚡','🏆']
-
-def _ar_load() -> dict:
-    try:
-        with open(AR_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _ar_save(data: dict):
-    try:
-        with open(AR_FILE, 'w') as f:
-            json.dump(data, f)
-    except Exception as e:
-        logger.warning(f'ar_save: {e}')
-
-def ar_get(chat_id) -> dict | None:
-    return _ar_load().get(str(chat_id))
-
-def ar_set(chat_id, cfg: dict):
-    data = _ar_load()
-    data[str(chat_id)] = cfg
-    _ar_save(data)
-
-def ar_delete(chat_id):
-    data = _ar_load()
-    data.pop(str(chat_id), None)
-    _ar_save(data)
-
-def ar_all() -> dict:
-    return _ar_load()
 
 # ── States ─────────────────────────────────────────────────────────────────────
 S_MAIN       = 0
@@ -96,7 +63,6 @@ S_PDF_RENAME = 8
 S_GOLD       = 9
 S_RMBG       = 10
 S_TTS        = 11
-S_AR         = 12
 
 # ── Session ────────────────────────────────────────────────────────────────────
 @dataclass
@@ -108,7 +74,7 @@ class UserSession:
     pdf_name:     Optional[str]  = None
     pdf2img_fmt:  Optional[str]  = None
     tts_voice:    str            = 'km-F'
-    ar_adding:    bool           = False
+
 
 _sessions: dict[int, UserSession] = {}
 
@@ -140,7 +106,6 @@ IK_MAIN = mkb([
     [ikb('✍️ រចនាប័ទ្មអក្សរ', 'style'),  ikb('🗂️ បំប្លែង PDF', 'doc')],
     [ikb('📷 QR Code', 'qr'),             ikb('🥇 ហាងឆេងមាស', 'gold')],
     [ikb('🪄 លុប Background AI', 'rmbg'), ikb('🎙️ បំប្លែងអក្សរជាសំឡេង', 'tts')],
-    [ikb('🤖 Auto React — ប្ដូរ Emoji Channel/Group', 'autoreact')],
 ])
 IK_RMBG = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
 IK_TTS_CANCEL = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
@@ -652,121 +617,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
                        mkb([[ikb('🔄 ព្យាយាមម្ដងទៀត', 'gold'), ikb('🏠 ម៉ឺនុយមេ', 'home')]]))
         sess.state = S_GOLD; return
 
-    # ── autoreact ────────────────────────────────────────────────────────────
-    if d == 'autoreact' or d == 'ar_back':
-        reset_sess(uid); sess = get_sess(uid)
-        save_msg(sess, cid, query.message.id)
-        sess.state = S_AR
-        data = ar_all()
-        lines = []
-        rows  = []
-        for k, v in data.items():
-            name = v.get('name', k)
-            status = '✅' if v.get('enabled', True) else '❌'
-            lines.append(f'{status} <code>{name}</code>')
-            rows.append([ikb(f'{status} {name}', f'ar_manage:{k}')])
-        chat_list = ('\n'.join(lines)) if lines else '<i>មិនទាន់មាន Channel/Group</i>'
-        rows.append([ikb('📋 Clone Code → Bot ផ្សេង', 'ar_clone')])
-        rows.append([ikb('🏠 ម៉ឺនុយមេ', 'home')])
-        await edit(
-            '🤖 <b>Auto React</b> — react emoji ស្វ័យប្រវត្តិ\n\n'
-            f'<b>Channels/Groups ដែល Active:</b>\n{chat_list}\n\n'
-            '📌 Bot ត្រូវ <b>Admin</b> ក្នុង Channel/Group\n'
-            'ហើយ Channel ត្រូវ <b>Sign Message</b> ជា Bot',
-            mkb(rows))
-        return
-
-    if d == 'ar_add':
-        sess.state = S_AR
-        sess.ar_adding = True
-        await edit(
-            '🤖 <b>Auto React — បន្ថែម Chat</b>\n\n'
-            '📤 <b>Forward</b> message មកពី Channel ឬ Group\n'
-            'ឬ <b>វាយ Chat ID</b> (ឧ: <code>-1001234567890</code>)\n\n'
-            '⚠️ Bot ត្រូវតែជា <b>Admin</b> ក្នុង Channel/Group នោះ',
-            mkb([[ikb('🔙 ត្រឡប់', 'ar_back')]]))
-        return
-
-    if d.startswith('ar_manage:'):
-        chat_key = d.split(':', 1)[1]
-        cfg = ar_get(chat_key) or {}
-        name   = cfg.get('name', chat_key)
-        enabled = cfg.get('enabled', True)
-        rl     = cfg.get('random_level', 0)
-        emojis = cfg.get('emojis', AR_DEFAULT_EMOJIS)
-        emoji_str = ' '.join(emojis[:8]) + ('…' if len(emojis) > 8 else '')
-        status_btn = ikb(f'{"✅ Enabled → Disable" if enabled else "❌ Disabled → Enable"}', f'ar_toggle:{chat_key}')
-        rl_btn     = ikb(f'🎲 Random Level: {rl}/10', f'ar_rl:{chat_key}')
-        del_btn    = ikb('🗑️ លុប', f'ar_del:{chat_key}')
-        await edit(
-            f'🤖 <b>Auto React</b> — <code>{name}</code>\n\n'
-            f'Status: {"✅ Active" if enabled else "❌ Inactive"}\n'
-            f'Emojis: {emoji_str}\n'
-            f'Random Level: <b>{rl}/10</b>\n'
-            '<i>(0 = react ទាំងអស់ · 10 = react ១០% ប៉ុណ្ណោះ)</i>',
-            mkb([[status_btn], [rl_btn], [del_btn], [ikb('🔙 ត្រឡប់', 'ar_back')]]))
-        return
-
-    if d.startswith('ar_toggle:'):
-        chat_key = d.split(':', 1)[1]
-        cfg = ar_get(chat_key) or {'emojis': AR_DEFAULT_EMOJIS, 'name': chat_key}
-        cfg['enabled'] = not cfg.get('enabled', True)
-        ar_set(chat_key, cfg)
-        status = '✅ Enabled' if cfg['enabled'] else '❌ Disabled'
-        await edit(f'🤖 Auto React <b>{cfg.get("name", chat_key)}</b>: {status}',
-                   mkb([[ikb('🔙 ត្រឡប់', 'ar_back')]]))
-        return
-
-    if d.startswith('ar_rl:'):
-        chat_key = d.split(':', 1)[1]
-        cfg = ar_get(chat_key) or {'emojis': AR_DEFAULT_EMOJIS, 'name': chat_key}
-        cur = cfg.get('random_level', 0)
-        nxt = (cur + 2) % 12
-        cfg['random_level'] = nxt
-        ar_set(chat_key, cfg)
-        await edit(f'🎲 Random Level ប្ដូរទៅ <b>{nxt}/10</b>\n<i>0=react ទាំងអស់, 10=react 0% (disable)</i>',
-                   mkb([[ikb('🔄 ប្ដូរ Level', f'ar_rl:{chat_key}')], [ikb('🔙 ត្រឡប់', f'ar_manage:{chat_key}')]]))
-        return
-
-    if d.startswith('ar_del:'):
-        chat_key = d.split(':', 1)[1]
-        cfg = ar_get(chat_key) or {}
-        ar_delete(chat_key)
-        await edit(f'🗑️ លុប <b>{cfg.get("name", chat_key)}</b> ចេញពី Auto React ហើយ!',
-                   mkb([[ikb('🔙 ត្រឡប់', 'ar_back')]]))
-        return
-
-    if d == 'ar_clone':
-        sess.state     = S_AR
-        sess.ar_adding = False
-        IK_CLONE = mkb([
-            [ikb_url('☁️ Deploy — Cloudflare (Free)',
-                     'https://deploy.workers.cloudflare.com/?url=https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
-            [ikb_url('▲ Deploy — Vercel (Free)',
-                     'https://vercel.com/new/clone?repository-url=https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
-            [ikb_url('🚀 Deploy — Render',
-                     'https://render.com/deploy?repo=https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
-            [ikb_url('📂 Source Code — GitHub',
-                     'https://github.com/Malith-Rukshan/Auto-Reaction-Bot')],
-            [ikb('🔙 ត្រឡប់', 'ar_back')],
-        ])
-        await edit(
-            '📋 <b>Clone Auto-React Bot</b>\n\n'
-            '🔗 Source: <a href="https://github.com/Malith-Rukshan/Auto-Reaction-Bot">GitHub — Malith-Rukshan/Auto-Reaction-Bot</a>\n\n'
-            '<b>⚙️ Environment Variables ដែលត្រូវ Set:</b>\n\n'
-            '• <code>BOT_TOKEN</code>\n'
-            '  └ Token ពី @BotFather\n\n'
-            '• <code>BOT_USERNAME</code>\n'
-            '  └ Username bot (គ្មាន @) ឧ. <code>mybot</code>\n\n'
-            '• <code>EMOJI_LIST</code>\n'
-            '  └ Emoji ដែល react ឧ. <code>👍❤🔥🥰👏😁🎉🤩🙏👌</code>\n\n'
-            '• <code>RANDOM_LEVEL</code>\n'
-            '  └ <code>0</code>=100% · <code>5</code>=50% · <code>10</code>=0%\n\n'
-            '• <code>RESTRICTED_CHATS</code> <i>(optional)</i>\n'
-            '  └ Chat IDs មិន react ឧ. <code>-1001234,-9876</code>\n\n'
-            '👇 ចុចប៊ូតុងខាងក្រោម deploy ភ្លាម:',
-            IK_CLONE)
-        return
 
     # ── unknown → home ──────────────────────────────────────────────────────
     await edit(HOME_TEXT, IK_MAIN)
@@ -781,31 +631,8 @@ async def text_handler(client: Client, message: Message):
     elif sess.state == S_QR_CREATE:  await handle_qr_create(client, message, sess)
     elif sess.state == S_PDF_RENAME: await handle_pdf_rename(client, message, sess)
     elif sess.state == S_TTS:        await handle_tts(client, message, sess)
-    elif sess.state == S_AR:         await handle_ar(client, message, sess)
     else:                            await handle_fallback(client, message, sess)
 
-# ── Auto-React channel/group listener ──────────────────────────────────────────
-@app.on_message((filters.channel | filters.group) & ~filters.private, group=1)
-async def auto_react_handler(client: Client, message: Message):
-    import random
-    chat_id = message.chat.id
-    cfg = ar_get(chat_id)
-    if not cfg or not cfg.get('enabled', True):
-        return
-    emojis = cfg.get('emojis', AR_DEFAULT_EMOJIS)
-    if not emojis:
-        return
-    random_level = cfg.get('random_level', 0)
-    from pyrogram.enums import ChatType
-    if message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
-        threshold = 1.0 - (random_level / 10.0)
-        if random.random() > threshold:
-            return
-    emoji = random.choice(emojis)
-    try:
-        await client.send_reaction(chat_id, message.id, emoji=emoji)
-    except Exception as e:
-        logger.warning(f'auto_react [{chat_id}]: {e}')
 
 # ── Photo / document dispatcher ────────────────────────────────────────────────
 @app.on_message(filters.photo | filters.document)
@@ -1101,73 +928,6 @@ async def handle_fallback(client: Client, message: Message, sess: UserSession):
     m   = await client.send_message(cid, '👇 <b>ជ្រើសរើស:</b>', reply_markup=IK_MAIN, parse_mode=ParseMode.HTML)
     save_msg(sess, cid, m.id)
 
-# ── Auto-React handler (DM text/forward) ───────────────────────────────────────
-async def handle_ar(client: Client, message: Message, sess: UserSession):
-    cid = message.chat.id
-    IK_AR_BACK = mkb([[ikb('🔙 ត្រឡប់', 'ar_back')]])
-
-    if not sess.ar_adding:
-        await handle_fallback(client, message, sess)
-        return
-
-    # Try to get chat from forwarded message
-    fwd_chat = getattr(message, 'forward_from_chat', None) or getattr(message, 'forward_origin', None)
-    chat_id_resolved = None
-    chat_name = None
-
-    if fwd_chat and hasattr(fwd_chat, 'id'):
-        chat_id_resolved = fwd_chat.id
-        chat_name = getattr(fwd_chat, 'title', None) or str(chat_id_resolved)
-    else:
-        # Try parse text as chat ID
-        raw = (message.text or '').strip()
-        try:
-            chat_id_resolved = int(raw)
-            # Try get chat info
-            try:
-                chat_obj = await client.get_chat(chat_id_resolved)
-                chat_name = getattr(chat_obj, 'title', None) or str(chat_id_resolved)
-            except Exception:
-                chat_name = str(chat_id_resolved)
-        except ValueError:
-            await client.send_message(
-                cid,
-                '⚠️ <b>មិនត្រូវ!</b> Forward message ពី Channel/Group\n'
-                'ឬ វាយ Chat ID (ឧ: <code>-1001234567890</code>)',
-                reply_markup=IK_AR_BACK, parse_mode=ParseMode.HTML)
-            return
-
-    await safe_delete(client, cid, message.id)
-    cfg = ar_get(chat_id_resolved) or {}
-    cfg.update({
-        'name':         chat_name,
-        'enabled':      True,
-        'emojis':       cfg.get('emojis', AR_DEFAULT_EMOJIS),
-        'random_level': cfg.get('random_level', 0),
-    })
-    ar_set(chat_id_resolved, cfg)
-    sess.ar_adding = False
-    sess.state = S_AR
-    await client.send_message(
-        cid,
-        f'✅ <b>Auto React ON!</b>\n\n'
-        f'📢 <b>{chat_name}</b>\n'
-        f'ID: <code>{chat_id_resolved}</code>\n\n'
-        f'Bot នឹង react emoji ស្វ័យប្រវត្តិ នៅពេល message ចូល\n'
-        f'<i>⚠️ ត្រូវ Add Bot ជា Admin ក្នុង Channel/Group ហើយ Enable Reactions</i>',
-        reply_markup=mkb([[ikb('⚙️ គ្រប់គ្រង', f'ar_manage:{chat_id_resolved}')],
-                          [ikb('🔙 ត្រឡប់', 'ar_back')]]),
-        parse_mode=ParseMode.HTML)
-
-# ── Forwarded message handler (for adding AR chats) ────────────────────────────
-@app.on_message(filters.forwarded & filters.private)
-async def forward_handler(client: Client, message: Message):
-    uid  = message.from_user.id if message.from_user else None
-    if uid is None:
-        return
-    sess = get_sess(uid)
-    if sess.state == S_AR and sess.ar_adding:
-        await handle_ar(client, message, sess)
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 logger.info('🤖 Bot កំពុង Start...')
