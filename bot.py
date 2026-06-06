@@ -264,7 +264,7 @@ def main_kb() -> list:
     return [
         [{'text': 'រចនាបទអក្សរ', 'callback_data': 'style', 'icon_custom_emoji_id': _STYLE_EMOJI},
          {'text': 'PDF', 'callback_data': 'doc', 'icon_custom_emoji_id': '5838982342122674517'}],
-        [{'text': '📷 បង្កើត QR', 'callback_data': 'qr'},
+        [{'text': 'បង្កើត QR', 'callback_data': 'qr', 'icon_custom_emoji_id': '5440410042773824003'},
          {'text': '🥇 ហាងឆេងមាស', 'callback_data': 'gold'}],
         [{'text': '🪄 Ai Remove BG', 'callback_data': 'rmbg'}],
     ]
