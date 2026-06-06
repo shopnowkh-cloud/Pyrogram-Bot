@@ -1102,7 +1102,8 @@ async def handle_email_list(client: Client, sess: UserSession, cid: int, edit_fn
         await edit_fn(
             '📭 <b>មិនទាន់មាន Email ត្រូវបានបង្កើតទេ។</b>\n\n'
             'ចុច ✉️ Email ថ្មី ដើម្បីចាប់ផ្ដើម។',
-            email_kb()
+            mkb([[InlineKeyboardButton('Back', callback_data='email',
+                                       icon_custom_emoji_id='5877629862306385808')]])
         )
         return
     lines = [
