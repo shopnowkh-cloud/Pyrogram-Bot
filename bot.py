@@ -104,7 +104,6 @@ IK_MAIN = mkb([
     [ikb('📷 បង្កើត QR', 'qr'),        ikb('🥇 ហាងឆេងមាស', 'gold')],
     [ikb('🪄 Ai Remove BG', 'rmbg')],
 ])
-IK_RMBG = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
 IK_DOC = mkb([
     [ikb('🖼️ រូបភាព → PDF', 'photo_pdf')],
     [ikb('🖼️ PDF → PNG', 'pdf_png'), ikb('📷 PDF → JPG', 'pdf_jpg')],
@@ -114,16 +113,10 @@ IK_QR = mkb([
     [ikb('🔳 បង្កើត QR', 'qr_create'), ikb('🔍 Scan QR', 'qr_scan')],
     [ikb('🏠 ម៉ឺនុយមេ', 'home')],
 ])
-IK_CANCEL_MAIN = mkb([[ikb('❌ បោះបង់', 'cancel_main')]])
-IK_CANCEL_DOC  = mkb([[ikb('❌ បោះបង់', 'cancel_doc')]])
-IK_CANCEL_QR   = mkb([[ikb('❌ បោះបង់', 'cancel_qr')]])
 IK_PDF_DONE    = mkb([[ikb('🖼️ PDF ថ្មី', 'photo_pdf'), ikb('🏠 ម៉ឺនុយមេ', 'home')]])
 IK_QR_CR_DONE  = mkb([[ikb('🔳 QR ថ្មី', 'qr_create'), ikb('🔍 Scan QR', 'qr_scan')], [ikb('🏠 ម៉ឺនុយមេ', 'home')]])
 IK_QR_SC_DONE  = mkb([[ikb('🔍 Scan ថ្មី', 'qr_scan'), ikb('🔳 បង្កើត QR', 'qr_create')], [ikb('🏠 ម៉ឺនុយមេ', 'home')]])
 
-def ik_pdf(n: int, name: Optional[str] = None) -> InlineKeyboardMarkup:
-    lbl = f'✅ បង្កើត PDF ({n} រូប)' + (f' 📄 "{name}"' if name else '')
-    return mkb([[ikb(lbl, 'pdf_build'), ikb('✏️ ប្តូរឈ្មោះ', 'pdf_rename')], [ikb('❌ បោះបង់', 'doc')]])
 
 def ik_img_done(fmt: str) -> InlineKeyboardMarkup:
     cb = 'pdf_png' if fmt == 'PNG' else 'pdf_jpg'
@@ -266,6 +259,50 @@ async def safe_delete(client: Client, cid: int, mid: int):
     except Exception:
         pass
 
+# ── REST API helpers (icon_custom_emoji_id on cancel buttons) ──────────────────
+_CANCEL_EMOJI = '5877629862306385808'
+_API = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}"
+
+def cancel_btn(data: str) -> dict:
+    return {'text': 'បោះបង់', 'callback_data': data, 'icon_custom_emoji_id': _CANCEL_EMOJI}
+
+def cancel_kb(data: str) -> list:
+    return [[cancel_btn(data)]]
+
+def pdf_kb(n: int, name=None) -> list:
+    lbl = f'✅ បង្កើត PDF ({n} រូប)' + (f' 📄 "{name}"' if name else '')
+    return [
+        [{'text': lbl, 'callback_data': 'pdf_build'}, {'text': '✏️ ប្តូរឈ្មោះ', 'callback_data': 'pdf_rename'}],
+        [cancel_btn('doc')],
+    ]
+
+async def _api(endpoint: str, payload: dict) -> dict:
+    async with httpx.AsyncClient(timeout=15) as c:
+        return (await c.post(f'{_API}/{endpoint}', data=payload)).json()
+
+async def api_edit(cid: int, mid: int, text: str, kb: list):
+    await _api('editMessageText', {
+        'chat_id': cid, 'message_id': mid, 'text': text,
+        'parse_mode': 'HTML', 'reply_markup': json.dumps({'inline_keyboard': kb}),
+    })
+
+async def api_send(cid: int, text: str, kb: list) -> int:
+    r = await _api('sendMessage', {
+        'chat_id': cid, 'text': text, 'parse_mode': 'HTML',
+        'reply_markup': json.dumps({'inline_keyboard': kb}),
+    })
+    return r['result']['message_id'] if r.get('ok') else None
+
+async def api_edit_or_send(sess: UserSession, cid: int, text: str, kb: list):
+    if sess.mid:
+        try:
+            await api_edit(cid, sess.mid, text, kb); return
+        except Exception:
+            pass
+    mid = await api_send(cid, text, kb)
+    if mid:
+        save_msg(sess, cid, mid)
+
 # ── PDF: images → PDF ──────────────────────────────────────────────────────────
 def images_to_pdf(photos: list) -> bytes:
     from PIL import Image
@@ -396,11 +433,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     # ── style ───────────────────────────────────────────────────────────────
     if d in ('style', 'style_new'):
-        await edit(
+        await api_edit_or_send(sess, cid,
             '✍️ <b>រចនាប័ទ្មអក្សរ</b>\n\n'
             'បំប្លែងអក្សរឡាតាំងទៅជាពុម្ពអក្សរពិសេស\n'
             'Bold · Italic · Script · Bubble · Upside-down និងច្រើនទៀត\n\n'
-            '✏️ <b>វាយអក្សរខាងក្រោម:</b>', IK_CANCEL_MAIN)
+            '✏️ <b>វាយអក្សរខាងក្រោម:</b>', cancel_kb('cancel_main'))
         sess.state = S_STYLE; return
 
     # ── cancel_main ─────────────────────────────────────────────────────────
@@ -432,11 +469,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
     # ── photo_pdf ───────────────────────────────────────────────────────────
     if d == 'photo_pdf':
         sess.pdf_photos = []; sess.mid = query.message.id
-        await edit(
+        await api_edit_or_send(sess, cid,
             '🖼️ <b>រូបភាព → PDF</b>\n\n'
             'Upload រូបភាពម្តាមដុំ Bot នឹងផ្សំទៅជា PDF តែមួយ\n'
             'Format: JPG · PNG · WEBP\n\n'
-            '📤 <b>ចាប់ផ្ដើម Upload រូបភាព:</b>', IK_CANCEL_DOC)
+            '📤 <b>ចាប់ផ្ដើម Upload រូបភាព:</b>', cancel_kb('cancel_doc'))
         sess.state = S_PDF; return
 
     # ── pdf_png / pdf_jpg ───────────────────────────────────────────────────
@@ -444,11 +481,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
         fmt = 'PNG' if d == 'pdf_png' else 'JPG'
         sess.pdf2img_fmt = fmt
         ico = '🖼️' if fmt == 'PNG' else '📷'
-        await edit(
+        await api_edit_or_send(sess, cid,
             f'{ico} <b>PDF → {fmt}</b>\n\n'
             f'Upload ឯកសារ PDF Bot នឹងបំប្លែងម្តាមទំព័រ\n'
             f'ជារូបភាព <b>{fmt}</b> គុណភាពខ្ពស់ — 150 DPI\n\n'
-            f'📎 <b>Upload ឯកសារ PDF:</b>', IK_CANCEL_DOC)
+            f'📎 <b>Upload ឯកសារ PDF:</b>', cancel_kb('cancel_doc'))
         sess.state = S_PDF2IMG; return
 
     # ── pdf_build ───────────────────────────────────────────────────────────
@@ -459,17 +496,16 @@ async def cb_handler(client: Client, query: CallbackQuery):
     if d == 'pdf_rename':
         n   = len(sess.pdf_photos)
         cur = f'\n📄 ឈ្មោះបច្ចុប្បន្ន: <b>{sess.pdf_name}</b>' if sess.pdf_name else ''
-        await edit(
+        await api_edit_or_send(sess, cid,
             f'✏️ <b>ប្តូរឈ្មោះ PDF</b>\n\nPDF នេះមាន {n} រូបភាព{cur}\n'
             f'<i>មិនចាំបាច់វាយ .pdf — Bot នឹងបន្ថែមឱ្យ</i>\n\n'
-            f'📝 <b>វាយឈ្មោះខាងក្រោម:</b>',
-            mkb([[ikb('❌ បោះបង់', 'cancel_rename')]]))
+            f'📝 <b>វាយឈ្មោះខាងក្រោម:</b>', cancel_kb('cancel_rename'))
         sess.state = S_PDF_RENAME; return
 
     # ── cancel_rename ───────────────────────────────────────────────────────
     if d == 'cancel_rename':
         n = len(sess.pdf_photos)
-        await edit(f'🖼️ <b>បានទទួល {n} រូប</b>\nUpload បន្ថែម ឬ ចុច <b>បង្កើត PDF</b>', ik_pdf(n, sess.pdf_name))
+        await api_edit_or_send(sess, cid, f'🖼️ <b>បានទទួល {n} រូប</b>\nUpload បន្ថែម ឬ ចុច <b>បង្កើត PDF</b>', pdf_kb(n, sess.pdf_name))
         sess.state = S_PDF; return
 
     # ── qr menu ─────────────────────────────────────────────────────────────
@@ -483,29 +519,29 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     # ── qr_create ───────────────────────────────────────────────────────────
     if d == 'qr_create':
-        await edit(
+        await api_edit_or_send(sess, cid,
             '🔳 <b>បង្កើត QR Code</b>\n\n'
             'បង្កើត QR Code HD ទំហំ <b>2048×2048</b>\n'
             'អាចប្រើជាមួយ Link · Text · ព័ត៌មានគ្រប់ប្រភេទ\n\n'
-            '✏️ <b>វាយ Link ឬ Text ខាងក្រោម:</b>', IK_CANCEL_QR)
+            '✏️ <b>វាយ Link ឬ Text ខាងក្រោម:</b>', cancel_kb('cancel_qr'))
         sess.state = S_QR_CREATE; return
 
     # ── qr_scan ─────────────────────────────────────────────────────────────
     if d == 'qr_scan':
-        await edit(
+        await api_edit_or_send(sess, cid,
             '🔍 <b>Scan QR Code</b>\n\n'
             'Upload រូបភាពដែលមាន QR Code\n'
             'Bot នឹង Decode យក <b>Link</b> ឬ <b>Text</b> ឱ្យអ្នក\n\n'
-            '📤 <b>Upload រូបភាព QR:</b>', IK_CANCEL_QR)
+            '📤 <b>Upload រូបភាព QR:</b>', cancel_kb('cancel_qr'))
         sess.state = S_QR_SCAN; return
 
     # ── rmbg ────────────────────────────────────────────────────────────────
     if d == 'rmbg':
-        await edit(
+        await api_edit_or_send(sess, cid,
             '🪄 <b>លុប Background AI</b>\n\n'
             'Upload រូបភាព Bot នឹងលុប Background ជូន\n'
             'Format: JPG · PNG · WEBP\n\n'
-            '📤 <b>Upload រូបភាព:</b>', IK_RMBG)
+            '📤 <b>Upload រូបភាព:</b>', cancel_kb('cancel_main'))
         sess.state = S_RMBG; return
 
     # ── gold ────────────────────────────────────────────────────────────────
@@ -594,7 +630,7 @@ async def handle_pdf_photo(client: Client, message: Message, sess: UserSession):
     cid = message.chat.id
     p, dc = message.photo, message.document
     if not p and not dc:
-        await edit_or_send(client, sess, cid, '⚠️ Upload <b>រូបភាព</b>!', IK_CANCEL_DOC); return
+        await api_edit_or_send(sess, cid, '⚠️ Upload <b>រូបភាព</b>!', cancel_kb('cancel_doc')); return
     try:
         raw = await download_file(client, p.file_id if p else dc.file_id)
         sess.pdf_photos.append(raw)
@@ -604,21 +640,15 @@ async def handle_pdf_photo(client: Client, message: Message, sess: UserSession):
         mid = sess.mid
         if n == 1 and mid:
             await safe_delete(client, cid, mid); sess.mid = None
-        if sess.mid:
-            try:
-                await client.edit_message_text(cid, sess.mid, txt, reply_markup=ik_pdf(n, sess.pdf_name), parse_mode=ParseMode.HTML); return
-            except Exception:
-                pass
-        msg = await client.send_message(cid, txt, reply_markup=ik_pdf(n, sess.pdf_name), parse_mode=ParseMode.HTML)
-        save_msg(sess, cid, msg.id)
+        await api_edit_or_send(sess, cid, txt, pdf_kb(n, sess.pdf_name))
     except Exception as e:
         logger.error(f'pdf_photo: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_CANCEL_DOC)
+        await api_edit_or_send(sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_doc'))
 
 # ── PDF build ──────────────────────────────────────────────────────────────────
 async def handle_pdf_build(client: Client, sess: UserSession, cid: int, orig_msg):
     if not sess.pdf_photos:
-        await edit_or_send(client, sess, cid, '⚠️ <b>មិនទាន់មានរូបភាព!</b>', IK_CANCEL_DOC); return
+        await api_edit_or_send(sess, cid, '⚠️ <b>មិនទាន់មានរូបភាព!</b>', cancel_kb('cancel_doc')); return
     try:
         try:
             await orig_msg.edit_text(f'⏳ <b>កំពុងបំប្លែង {len(sess.pdf_photos)} រូប → PDF...</b>', parse_mode=ParseMode.HTML)
@@ -638,7 +668,7 @@ async def handle_pdf_build(client: Client, sess: UserSession, cid: int, orig_msg
         sess.pdf_photos = []; sess.pdf_name = None; sess.state = S_MAIN
     except Exception as e:
         logger.error(f'pdf_build: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_CANCEL_DOC)
+        await api_edit_or_send(sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_doc'))
 
 # ── PDF → Image ────────────────────────────────────────────────────────────────
 async def handle_pdf2img(client: Client, message: Message, sess: UserSession):
@@ -646,7 +676,7 @@ async def handle_pdf2img(client: Client, message: Message, sess: UserSession):
     dc  = message.document
     is_pdf = dc and (getattr(dc, 'mime_type', '') == 'application/pdf' or (getattr(dc, 'file_name', '') or '').lower().endswith('.pdf'))
     if not is_pdf:
-        await edit_or_send(client, sess, cid, '⚠️ Upload ឯកសារ <b>PDF</b>!', IK_CANCEL_DOC); return
+        await api_edit_or_send(sess, cid, '⚠️ Upload ឯកសារ <b>PDF</b>!', cancel_kb('cancel_doc')); return
     fmt = sess.pdf2img_fmt or 'PNG'
     try:
         await edit_or_send(client, sess, cid, f'⏳ <b>កំពុងបំប្លែង PDF → {fmt}...</b>')
@@ -666,7 +696,7 @@ async def handle_pdf2img(client: Client, message: Message, sess: UserSession):
         save_msg(sess, cid, m.id); sess.state = S_MAIN
     except Exception as e:
         logger.error(f'pdf2img: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_CANCEL_DOC)
+        await api_edit_or_send(sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_doc'))
 
 # ── QR create ──────────────────────────────────────────────────────────────────
 async def handle_qr_create(client: Client, message: Message, sess: UserSession):
@@ -688,7 +718,7 @@ async def handle_qr_create(client: Client, message: Message, sess: UserSession):
         save_msg(sess, cid, m.id)
     except Exception as e:
         logger.error(f'qr_create: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_CANCEL_QR)
+        await api_edit_or_send(sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_qr'))
     sess.state = S_MAIN
 
 # ── QR scan ────────────────────────────────────────────────────────────────────
@@ -696,14 +726,14 @@ async def handle_qr_scan(client: Client, message: Message, sess: UserSession):
     cid  = message.chat.id
     p, dc = message.photo, message.document
     if not p and not dc:
-        await edit_or_send(client, sess, cid, '⚠️ Upload <b>រូបភាព QR</b>!', IK_CANCEL_QR)
+        await api_edit_or_send(sess, cid, '⚠️ Upload <b>រូបភាព QR</b>!', cancel_kb('cancel_qr'))
         sess.state = S_QR_SCAN; return
     loop = asyncio.get_running_loop()
     try:
         raw     = await download_file(client, p.file_id if p else dc.file_id)
         results = await loop.run_in_executor(None, scan_qr, raw)
         if not results:
-            await edit_or_send(client, sess, cid, '❌ <b>រកមិនឃើញ QR Code!</b>\nសូម Upload រូបភាពច្បាស់ជាង', IK_CANCEL_QR)
+            await api_edit_or_send(sess, cid, '❌ <b>រកមិនឃើញ QR Code!</b>\nសូម Upload រូបភាពច្បាស់ជាង', cancel_kb('cancel_qr'))
             sess.state = S_QR_SCAN; return
         lines = '\n\n'.join(f'📌 <b>លទ្ធផលទី {i+1}:</b>\n<code>{r}</code>' for i,r in enumerate(results))
         if sess.mid: await safe_delete(client, cid, sess.mid); sess.mid = None
@@ -713,7 +743,7 @@ async def handle_qr_scan(client: Client, message: Message, sess: UserSession):
         save_msg(sess, cid, m.id)
     except Exception as e:
         logger.error(f'qr_scan: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_CANCEL_QR)
+        await api_edit_or_send(sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_qr'))
     sess.state = S_MAIN
 
 # ── PDF rename ─────────────────────────────────────────────────────────────────
@@ -723,14 +753,8 @@ async def handle_pdf_rename(client: Client, message: Message, sess: UserSession)
     cid = message.chat.id
     await safe_delete(client, cid, message.id)
     txt = f'🖼️ <b>បានទទួល {n} រូប</b>\nUpload បន្ថែម ឬ ចុច <b>បង្កើត PDF</b>'
-    if sess.mid:
-        try:
-            await client.edit_message_text(cid, sess.mid, txt, reply_markup=ik_pdf(n, sess.pdf_name), parse_mode=ParseMode.HTML)
-            sess.state = S_PDF; return
-        except Exception:
-            pass
-    msg = await client.send_message(cid, txt, reply_markup=ik_pdf(n, sess.pdf_name), parse_mode=ParseMode.HTML)
-    save_msg(sess, cid, msg.id); sess.state = S_PDF
+    await api_edit_or_send(sess, cid, txt, pdf_kb(n, sess.pdf_name))
+    sess.state = S_PDF
 
 
 # ── Remove Background handler ──────────────────────────────────────────────────
@@ -740,7 +764,7 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
     user = message.from_user
     p, dc = message.photo, message.document
     if not p and not dc:
-        await edit_or_send(client, sess, cid, '⚠️ Upload <b>រូបភាព</b>!', IK_RMBG)
+        await api_edit_or_send(sess, cid, '⚠️ Upload <b>រូបភាព</b>!', cancel_kb('cancel_main'))
         sess.state = S_RMBG; return
     try:
         await edit_or_send(client, sess, cid, '⏳ <b>AI កំពុងលុប Background...</b>')
@@ -779,7 +803,7 @@ async def handle_rmbg(client: Client, message: Message, sess: UserSession):
 
     except Exception as e:
         logger.error(f'rmbg: {e}')
-        await edit_or_send(client, sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', IK_RMBG)
+        await api_edit_or_send(sess, cid, '❌ <b>មានបញ្ហា! ព្យាយាមម្ដងទៀត</b>', cancel_kb('cancel_main'))
         sess.state = S_RMBG
 
 # ── Fallback ───────────────────────────────────────────────────────────────────
