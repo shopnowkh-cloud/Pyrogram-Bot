@@ -250,7 +250,7 @@ async def safe_delete(client: Client, cid: int, mid: int):
 # ── Keyboards ──────────────────────────────────────────────────────────────────
 def main_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [InlineKeyboardButton('រចនាបទអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942'),
+        [InlineKeyboardButton('រចនាបថអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942'),
          InlineKeyboardButton('PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517')],
         [InlineKeyboardButton('បង្កើត QR', callback_data='qr', icon_custom_emoji_id='5440410042773824003'),
          InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
@@ -399,7 +399,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
     # ── style ───────────────────────────────────────────────────────────────
     if d in ('style', 'style_new'):
         await edit_or_send(client, sess, cid,
-            '<tg-emoji emoji-id="5197269100878907942">✍️</tg-emoji> <b>រចនាបទអក្សរ</b>\n\n'
+            '<tg-emoji emoji-id="5197269100878907942">✍️</tg-emoji> <b>រចនាបថអក្សរ</b>\n\n'
             'បំប្លែងអក្សរឡាតាំងទៅជាពុម្ពអក្សរពិសេស\n'
             'Bold · Italic · Script · Bubble · Upside-down និងច្រើនទៀត\n\n'
             '<tg-emoji emoji-id="5364265065799239497">✏️</tg-emoji> <b>វាយអក្សរខាងក្រោម...</b>', cancel_kb('cancel_main'))
