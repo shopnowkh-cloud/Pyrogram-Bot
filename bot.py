@@ -916,7 +916,8 @@ def stop_email_polling(uid: int):
 # ── Email: keyboard (single, reused everywhere) ────────────────────────────────
 def email_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
+        [ikb('✉️ Email ថ្មី', 'email_new')],
+        [ikb('📋 បញ្ជី Email', 'email_list')],
         [ikb('🔄 Restore Email', 'email_restore')],
         [InlineKeyboardButton('Back', callback_data='home',
                               icon_custom_emoji_id='5877629862306385808')],
@@ -928,7 +929,8 @@ async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn
         addr = sess.email_address
         kb = mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
-            [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
+            [ikb('✉️ Email ថ្មី', 'email_new')],
+            [ikb('📋 បញ្ជី Email', 'email_list')],
             [ikb('🔄 Restore Email', 'email_restore')],
             [InlineKeyboardButton('Back', callback_data='home',
                                   icon_custom_emoji_id='5877629862306385808')],
@@ -964,7 +966,8 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
         mkb([
             [InlineKeyboardButton(f'📋 {addr}', copy_text=addr)],
             [InlineKeyboardButton(f'🔑 {restore}', copy_text=restore)],
-            [ikb('✉️ Email ថ្មី', 'email_new'),  ikb('📋 បញ្ជី Email', 'email_list')],
+            [ikb('✉️ Email ថ្មី', 'email_new')],
+            [ikb('📋 បញ្ជី Email', 'email_list')],
             [InlineKeyboardButton('Back', callback_data='home',
                                   icon_custom_emoji_id='5877629862306385808')],
         ])
@@ -1061,7 +1064,8 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
         reply_markup=mkb([
             [InlineKeyboardButton(f'📋 {result["email"]}', copy_text=result['email'])],
             [InlineKeyboardButton(f'🔑 {sess.email_restore}', copy_text=sess.email_restore)],
-            [ikb('✉️ Email ថ្មី', 'email_new'), ikb('📋 បញ្ជី Email', 'email_list')],
+            [ikb('✉️ Email ថ្មី', 'email_new')],
+            [ikb('📋 បញ្ជី Email', 'email_list')],
             [InlineKeyboardButton('Back', callback_data='home',
                                   icon_custom_emoji_id='5877629862306385808')],
         ]),
