@@ -385,12 +385,17 @@ def scan_qr(image_bytes: bytes) -> list:
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
-app = Client(
-    'simple_bot',
+_session_string = os.environ.get('BOT_SESSION_STRING', '').strip() or None
+_client_kwargs = dict(
     api_id=int(os.environ['TELEGRAM_API_ID']),
     api_hash=os.environ['TELEGRAM_API_HASH'],
     bot_token=os.environ['TELEGRAM_BOT_TOKEN'],
 )
+if _session_string:
+    _client_kwargs['session_string'] = _session_string
+    _client_kwargs['in_memory'] = True
+
+app = Client('simple_bot' if not _session_string else ':memory:', **_client_kwargs)
 
 # ── /start ─────────────────────────────────────────────────────────────────────
 @app.on_message(filters.incoming & filters.command('start'))
@@ -912,6 +917,13 @@ if _inspect.iscoroutinefunction(app.start):
     _run(app.start())
 else:
     app.start()
+
+if not _session_string:
+    exported = app.export_session_string()
+    logger.info('=' * 60)
+    logger.info('BOT_SESSION_STRING (copy this to Render env vars):')
+    logger.info(exported)
+    logger.info('=' * 60)
 
 email_module.init_email_module(app)
 order_module.init_order_module(app)
