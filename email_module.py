@@ -26,6 +26,8 @@ _app: Optional[Client] = None
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 def _conn():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set — add it to Render environment variables")
     return psycopg2.connect(DATABASE_URL)
 
 

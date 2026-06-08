@@ -64,6 +64,8 @@ def is_admin(uid) -> bool:
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 def _db_conn():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set — add it to Render environment variables")
     return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
 
 
