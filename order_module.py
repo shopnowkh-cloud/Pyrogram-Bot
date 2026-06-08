@@ -772,7 +772,7 @@ def _donate_cancel_ikb():
     ])
 
 
-async def send_donate_menu(chat_id, user_id):
+async def send_donate_menu(chat_id, user_id, query=None):
     loop = asyncio.get_running_loop()
     total, times = await loop.run_in_executor(None, _get_user_donation_total_sync, user_id)
     my_line = ''
@@ -783,6 +783,13 @@ async def send_donate_menu(chat_id, user_id):
         'ការបរិច្ចាគរបស់អ្នកជួយឱ្យ Bot នេះបន្តដំណើរការ 🙏\n\n'
         '💵 <b>ជ្រើសរើសចំនួន (USD):</b>' + my_line
     )
+    if query:
+        try:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML,
+                                          reply_markup=_donate_ikb())
+            return
+        except Exception:
+            pass
     await _send(chat_id, text, kb=_donate_ikb())
 
 
@@ -1622,7 +1629,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
 
     if d == 'donate_khpay':
         await query.answer()
-        await send_donate_menu(cid, uid)
+        await send_donate_menu(cid, uid, query=query)
         return True
 
     if d.startswith('don:'):
