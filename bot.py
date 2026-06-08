@@ -31,6 +31,7 @@ from pyrogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
     LabeledPrice, PreCheckoutQuery,
+    LinkPreviewOptions,
 )
 from pyrogram.methods.utilities.idle import idle as _idle
 
@@ -1650,7 +1651,7 @@ async def _osend(chat_id, text, kb=None):
             chat_id, text,
             parse_mode=ParseMode.HTML,
             reply_markup=kb,
-            disable_web_page_preview=True)
+            link_preview_options=LinkPreviewOptions(is_disabled=True))
     except Exception as e:
         logger.error(f"_osend to {chat_id}: {e}")
         return None
@@ -1670,7 +1671,7 @@ async def _settings_edit(chat_id, user_id, text, kb=None):
             await app.edit_message_text(
                 chat_id, mid, text,
                 parse_mode=ParseMode.HTML, reply_markup=kb,
-                disable_web_page_preview=True)
+                link_preview_options=LinkPreviewOptions(is_disabled=True))
             return
         except Exception:
             pass
