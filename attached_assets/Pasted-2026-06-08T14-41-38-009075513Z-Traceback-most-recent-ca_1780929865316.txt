@@ -1,0 +1,35 @@
+2026-06-08T14:41:38.009075513Z Traceback (most recent call last):
+2026-06-08T14:41:38.009120594Z   File "/app/bot.py", line 17, in <module>
+2026-06-08T14:41:38.009162765Z     import order_module
+2026-06-08T14:41:38.009169905Z   File "/app/order_module.py", line 35, in <module>
+2026-06-08T14:41:38.009237127Z     ADMIN_ID: int   = int(os.environ.get("ADMIN_ID", "0"))
+2026-06-08T14:41:38.009304439Z                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T14:41:38.009307989Z ValueError: invalid literal for int() with base 10: ''
+2026-06-08T14:41:45.184668936Z Traceback (most recent call last):
+2026-06-08T14:41:45.184719817Z   File "/app/bot.py", line 17, in <module>
+2026-06-08T14:41:45.184762678Z     import order_module
+2026-06-08T14:41:45.184784019Z   File "/app/order_module.py", line 35, in <module>
+2026-06-08T14:41:45.18483866Z     ADMIN_ID: int   = int(os.environ.get("ADMIN_ID", "0"))
+2026-06-08T14:41:45.184880372Z                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T14:41:45.184884402Z ValueError: invalid literal for int() with base 10: ''
+2026-06-08T14:42:00.784357042Z Traceback (most recent call last):
+2026-06-08T14:42:00.784408104Z   File "/app/bot.py", line 17, in <module>
+2026-06-08T14:42:00.784434384Z     import order_module
+2026-06-08T14:42:00.784442374Z   File "/app/order_module.py", line 35, in <module>
+2026-06-08T14:42:00.784506936Z     ADMIN_ID: int   = int(os.environ.get("ADMIN_ID", "0"))
+2026-06-08T14:42:00.784543587Z                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T14:42:00.784548717Z ValueError: invalid literal for int() with base 10: ''
+2026-06-08T14:42:27.880423174Z Traceback (most recent call last):
+2026-06-08T14:42:27.880468915Z   File "/app/bot.py", line 17, in <module>
+2026-06-08T14:42:27.880537817Z     import order_module
+2026-06-08T14:42:27.880541737Z   File "/app/order_module.py", line 35, in <module>
+2026-06-08T14:42:27.880619509Z     ADMIN_ID: int   = int(os.environ.get("ADMIN_ID", "0"))
+2026-06-08T14:42:27.88066207Z                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T14:42:27.88066557Z ValueError: invalid literal for int() with base 10: ''
+2026-06-08T14:43:11.975040821Z Traceback (most recent call last):
+2026-06-08T14:43:11.975077772Z   File "/app/bot.py", line 17, in <module>
+2026-06-08T14:43:11.975157924Z     import order_module
+2026-06-08T14:43:11.975166754Z   File "/app/order_module.py", line 35, in <module>
+2026-06-08T14:43:11.975275197Z     ADMIN_ID: int   = int(os.environ.get("ADMIN_ID", "0"))
+2026-06-08T14:43:11.975342689Z                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T14:43:11.975346679Z ValueError: invalid literal for int() with base 10: ''

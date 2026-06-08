@@ -32,7 +32,7 @@ KHPAY_BASE_URL  = "https://khpay.site/api/v1"
 POLL_INTERVAL   = 10
 POLL_COUNT      = 6
 DATABASE_URL    = os.environ.get("DATABASE_URL", "")
-ADMIN_ID: int   = int(os.environ.get("ADMIN_ID", "0"))
+ADMIN_ID: int   = int(os.environ.get("ADMIN_ID", "0") or "0")
 
 # Runtime globals (loaded from DB after init)
 CHANNEL_ID       = os.environ.get("TELEGRAM_CHANNEL_ID", "").strip()
