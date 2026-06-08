@@ -114,6 +114,16 @@ def _init_db_sync():
                     id SERIAL PRIMARY KEY,
                     data JSONB NOT NULL DEFAULT '{}'
                 )""")
+                cur.execute("""CREATE TABLE IF NOT EXISTS order_donations (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    first_name TEXT DEFAULT '',
+                    last_name TEXT DEFAULT '',
+                    username TEXT DEFAULT '',
+                    amount NUMERIC NOT NULL,
+                    txn_id TEXT DEFAULT '',
+                    donated_at TIMESTAMPTZ DEFAULT NOW()
+                )""")
                 cur.execute("""CREATE TABLE IF NOT EXISTS order_pending_payments (
                     user_id BIGINT PRIMARY KEY,
                     chat_id BIGINT NOT NULL,
@@ -315,6 +325,42 @@ def _delete_pending_payment_sync(user_id):
         _db_execute("DELETE FROM order_pending_payments WHERE user_id = %s", [str(user_id)])
     except Exception as e:
         logger.error(f"delete_pending_payment: {e}")
+
+
+# ─── Donation DB helpers ──────────────────────────────────────────────────────
+def _save_donation_sync(user_id, first_name, last_name, username, amount, txn_id=''):
+    try:
+        _db_execute("""INSERT INTO order_donations
+            (user_id, first_name, last_name, username, amount, txn_id)
+            VALUES (%s,%s,%s,%s,%s,%s)""",
+            [str(user_id), first_name or '', last_name or '', username or '',
+             str(amount), txn_id or ''])
+    except Exception as e:
+        logger.error(f"save_donation: {e}")
+
+
+def _get_top_donors_sync(limit=10):
+    try:
+        return _db_query("""
+            SELECT user_id, first_name, last_name, username,
+                   SUM(amount) AS total, COUNT(*) AS times
+            FROM order_donations
+            GROUP BY user_id, first_name, last_name, username
+            ORDER BY total DESC LIMIT %s""", [str(limit)])
+    except Exception as e:
+        logger.error(f"get_top_donors: {e}")
+    return []
+
+
+def _get_user_donation_total_sync(user_id):
+    try:
+        rows = _db_query("""SELECT COALESCE(SUM(amount),0) AS total, COUNT(*) AS times
+            FROM order_donations WHERE user_id=%s""", [str(user_id)])
+        if rows:
+            return float(rows[0].get('total') or 0), int(rows[0].get('times') or 0)
+    except Exception as e:
+        logger.error(f"get_user_donation_total: {e}")
+    return 0.0, 0
 
 
 # ─── Purchase history DB ──────────────────────────────────────────────────────
@@ -701,6 +747,186 @@ async def _start_add_account_flow(chat_id, user_id):
         "<code>example@gmail.com\ntest123@yahoo.com</code>\n\n"
         "<i>ចុច 🚫 បោះបង់ ដើម្បីបោះបង់</i>",
         _settings_cancel_ikb())
+
+
+# ─── Donate UI ────────────────────────────────────────────────────────────────
+DONATE_PRESETS = [1, 2, 5, 10, 20, 50]
+MEDALS = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+
+
+def _donate_ikb():
+    rows = []
+    for i in range(0, len(DONATE_PRESETS), 3):
+        row = [_ikb(f'${amt}', f'don:{amt}') for amt in DONATE_PRESETS[i:i+3]]
+        rows.append(row)
+    rows.append([_ikb('✏️ ចំនួនផ្ទាល់ខ្លួន', 'don_custom')])
+    rows.append([_ikb('🏆 Top Donation', 'don_top')])
+    rows.append([InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
+                                      icon_custom_emoji_id='5282843764451195532')])
+    return InlineKeyboardMarkup(rows)
+
+
+def _donate_cancel_ikb():
+    return InlineKeyboardMarkup([
+        [_ikb('🚫 បោះបង់', 'don_cancel')],
+    ])
+
+
+async def send_donate_menu(chat_id, user_id):
+    loop = asyncio.get_running_loop()
+    total, times = await loop.run_in_executor(None, _get_user_donation_total_sync, user_id)
+    my_line = ''
+    if total > 0:
+        my_line = f'\n\n💝 <b>អ្នកបានបរិច្ចាគ:</b> <b>${total:.2f}</b> ({times} ដង)'
+    text = (
+        '💝 <b>Donate តាម KHPay (Bakong QR)</b>\n\n'
+        'ការបរិច្ចាគរបស់អ្នកជួយឱ្យ Bot នេះបន្តដំណើរការ 🙏\n\n'
+        '💵 <b>ជ្រើសរើសចំនួន (USD):</b>' + my_line
+    )
+    await _send(chat_id, text, kb=_donate_ikb())
+
+
+async def _format_top_donors() -> str:
+    loop = asyncio.get_running_loop()
+    rows = await loop.run_in_executor(None, _get_top_donors_sync, 10)
+    if not rows:
+        return '🏆 <b>Top Donation</b>\n\n<i>មិនទាន់មានអ្នកបរិច្ចាគ</i>'
+    lines = ['🏆 <b>Top Donation</b>\n']
+    for i, r in enumerate(rows):
+        medal = MEDALS[i] if i < len(MEDALS) else f'{i+1}.'
+        first = r.get('first_name') or ''; last = r.get('last_name') or ''
+        full  = html.escape((f'{first} {last}').strip() or 'Anonymous')
+        uname = r.get('username') or ''
+        uname_str = f' (@{html.escape(uname)})' if uname else ''
+        total = float(r.get('total') or 0)
+        times = int(r.get('times') or 0)
+        lines.append(f'{medal} <b>{full}</b>{uname_str}\n   💵 ${total:.2f}  ·  {times} ដង\n')
+    return '\n'.join(lines)
+
+
+async def _confirm_donation(client, chat_id, user_id, amount, session, payment_data=None):
+    """Called when donation payment confirmed."""
+    user_info = session.get('user_info', {})
+    first = user_info.get('first_name', '')
+    last  = user_info.get('last_name', '')
+    uname = user_info.get('username', '')
+    txn   = session.get('txn_id', '')
+    loop  = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _save_donation_sync,
+                               user_id, first, last, uname, amount, txn)
+    total, times = await loop.run_in_executor(None, _get_user_donation_total_sync, user_id)
+    with _data_lock:
+        order_sessions.pop(user_id, None)
+    _save_sessions_bg()
+    full = f'{first} {last}'.strip() or 'Anonymous'
+    thank_text = (
+        f'🎉 <b>អរគុណខ្លាំងណាស់!</b>\n\n'
+        f'💝 <b>{html.escape(full)}</b>\n'
+        f'បានបរិច្ចាគ <b>${amount:.2f}</b> ជូន RADY Bot! 🙏\n\n'
+        f'💵 <b>សរុបរបស់អ្នក:</b> ${total:.2f} ({times} ដង)'
+    )
+    kb = InlineKeyboardMarkup([
+        [_ikb('🏆 Top Donation', 'don_top')],
+        [InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
+                              icon_custom_emoji_id='5282843764451195532')],
+    ])
+    await _send(chat_id, thank_text, kb=kb)
+    # Notify admin
+    try:
+        uname_str = f'@{uname}' if uname else '—'
+        notif = (
+            f'💝 <b>Donation បានទទួល!</b>\n'
+            f'━━━━━━━━━━━━━━━━━━━\n'
+            f'👤 {html.escape(full)} ({uname_str})\n'
+            f'🪪 ID: <code>{user_id}</code>\n'
+            f'💵 ចំនួន: <b>${amount:.2f}</b>\n'
+            f'💎 សរុប: ${total:.2f} ({times} ដង)'
+        )
+        await _send(ADMIN_ID, notif)
+    except Exception as e:
+        logger.error(f"donate admin notif: {e}")
+
+
+async def _poll_donation(client, user_id, chat_id, txn_id, amount, qr_msg_id, session):
+    with _polls_lock:
+        key = f'don_{user_id}'
+        if key in _active_polls:
+            return
+        _active_polls.add(key)
+    status_msg_id = None
+    try:
+        for i in range(POLL_COUNT):
+            await asyncio.sleep(POLL_INTERVAL)
+            with _data_lock:
+                sess = order_sessions.get(user_id)
+            if not sess or sess.get('state') != 'donation_pending':
+                return
+            try:
+                is_paid, pd = await check_payment_status(txn_id)
+                if is_paid:
+                    with _polls_lock:
+                        _active_polls.discard(key)
+                    if status_msg_id:
+                        await _del_msg(chat_id, status_msg_id)
+                    await _del_msg(chat_id, qr_msg_id)
+                    await _confirm_donation(client, chat_id, user_id, amount, session, pd)
+                    return
+            except Exception as e:
+                logger.error(f"poll_donation check: {e}")
+            if i < POLL_COUNT - 1:
+                if status_msg_id:
+                    await _del_msg(chat_id, status_msg_id)
+                m = await _send(chat_id, '🔍 រង់ចាំការ Donate...')
+                if m:
+                    status_msg_id = m.id
+        # Timed out
+        if status_msg_id:
+            await _del_msg(chat_id, status_msg_id)
+        await _del_msg(chat_id, qr_msg_id)
+        with _data_lock:
+            sess = order_sessions.get(user_id)
+        if sess and sess.get('state') == 'donation_pending':
+            with _data_lock:
+                order_sessions.pop(user_id, None)
+            _save_sessions_bg()
+            await send_donate_menu(chat_id, user_id)
+    finally:
+        with _polls_lock:
+            _active_polls.discard(f'don_{user_id}')
+
+
+async def _generate_and_send_donate_qr(client, chat_id, user_id, amount, session):
+    try:
+        img_bytes, txn_id, qr_string = await generate_payment_qr(amount)
+        if not img_bytes:
+            err = txn_id or 'Unknown'
+            await _send(chat_id, f'❌ <b>មានបញ្ហាបង្កើត QR</b>\n\nព្យាយាមម្ដងទៀត')
+            with _data_lock:
+                order_sessions.pop(user_id, None)
+            _save_sessions_bg()
+            return
+        session['txn_id']    = txn_id
+        session['qr_sent_at'] = time.time()
+        buf = io.BytesIO(img_bytes); buf.name = 'donate_qr.png'
+        caption = (
+            f'💝 <b>Donate ${amount:.2f} USD</b>\n\n'
+            f'<i>Scan QR ខាងក្រោម ហើយបង់ប្រាក់</i>\n'
+            f'⏳ <b>ផុតកំណត់:</b> {POLL_COUNT * POLL_INTERVAL}s'
+        )
+        photo_msg = await _app.send_photo(chat_id, buf, caption=caption,
+                                          parse_mode=ParseMode.HTML,
+                                          reply_markup=_donate_cancel_ikb())
+        if photo_msg:
+            session['qr_message_id'] = photo_msg.id
+        _save_sessions_bg()
+        asyncio.create_task(_poll_donation(client, user_id, chat_id, txn_id,
+                                           amount, session.get('qr_message_id', 0), session))
+    except Exception as e:
+        logger.error(f"generate_and_send_donate_qr: {e}")
+        await _send(chat_id, '❌ <b>មានបញ្ហាបង្កើត QR</b>\n\nព្យាយាមម្ដងទៀត')
+        with _data_lock:
+            order_sessions.pop(user_id, None)
+        _save_sessions_bg()
 
 
 # ─── Account selection UI ─────────────────────────────────────────────────────
@@ -1378,6 +1604,91 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
             await query.answer("⏳ មិនទាន់បានទទួលការបង់ប្រាក់! សូមព្យាយាមម្ដងទៀត", show_alert=True)
         return True
 
+    # ── Donate flow ───────────────────────────────────────────────────────────
+    if d == 'don_top':
+        await query.answer()
+        top_text = await _format_top_donors()
+        kb = InlineKeyboardMarkup([
+            [_ikb('🔄 ផ្ទុកឡើងវិញ', 'don_top')],
+            [_ikb('💝 Donate', 'donate_khpay'),
+             InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
+                                  icon_custom_emoji_id='5282843764451195532')],
+        ])
+        try:
+            await query.message.edit_text(top_text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except Exception:
+            await _send(cid, top_text, kb=kb)
+        return True
+
+    if d == 'donate_khpay':
+        await query.answer()
+        await send_donate_menu(cid, uid)
+        return True
+
+    if d.startswith('don:'):
+        existing = order_sessions.get(uid)
+        if existing and existing.get('state') in ('donation_pending', 'payment_pending'):
+            await query.answer('⚠️ មានការ Donate/ទិញដែលកំពុងរង់ចាំ!', show_alert=True)
+            return True
+        try:
+            amount = float(d.split(':', 1)[1])
+        except (ValueError, IndexError):
+            await query.answer()
+            return True
+        if amount <= 0:
+            await query.answer('❌ ចំនួនមិនត្រឹមត្រូវ!', show_alert=True)
+            return True
+        await query.answer()
+        with _data_lock:
+            order_sessions[uid] = {
+                'state': 'donation_pending',
+                'amount': amount,
+                'user_info': {
+                    'first_name': user.first_name or '',
+                    'last_name':  user.last_name or '',
+                    'username':   user.username or '',
+                },
+            }
+        _save_sessions_bg()
+        await _generate_and_send_donate_qr(client, cid, uid, amount,
+                                            order_sessions[uid])
+        return True
+
+    if d == 'don_custom':
+        existing = order_sessions.get(uid)
+        if existing and existing.get('state') in ('donation_pending', 'payment_pending'):
+            await query.answer('⚠️ មានការ Donate/ទិញដែលកំពុងរង់ចាំ!', show_alert=True)
+            return True
+        await query.answer()
+        with _data_lock:
+            order_sessions[uid] = {
+                'state': 'don_waiting_amount',
+                'user_info': {
+                    'first_name': user.first_name or '',
+                    'last_name':  user.last_name or '',
+                    'username':   user.username or '',
+                },
+            }
+        _save_sessions_bg()
+        await _send(cid,
+            '✏️ <b>Donate ចំនួនផ្ទាល់ខ្លួន</b>\n\n'
+            'ផ្ញើចំនួន <b>USD</b> ដែលចង់ Donate:\n\n'
+            '<code>3.5</code> · <code>7</code> · <code>15</code> · <code>25</code>\n\n'
+            '<i>ចុច 🚫 បោះបង់ ដើម្បីបោះបង់</i>',
+            kb=InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]]))
+        return True
+
+    if d == 'don_cancel':
+        await query.answer()
+        with _data_lock:
+            sess = order_sessions.pop(uid, None)
+        _save_sessions_bg()
+        if sess and sess.get('qr_message_id'):
+            await _del_msg(cid, sess['qr_message_id'])
+        await _del_msg(cid, query.message.id)
+        await send_donate_menu(cid, uid)
+        return True
+
     # ── Delete type confirm ───────────────────────────────────────────────────
     if d.startswith('dts:') and is_admin(uid):
         type_name = _type_from_cb_id(d[4:]) or d[4:]
@@ -1679,6 +1990,41 @@ async def handle_order_message(client, message: Message) -> bool:
     # ── Payment pending — remind ───────────────────────────────────────────────
     if state == 'payment_pending':
         await _remind_pending(cid, sess)
+        return True
+
+    # ── Donation pending — remind ──────────────────────────────────────────────
+    if state == 'donation_pending':
+        await _send(cid,
+            '⚠️ <b>មានការ Donate ដែលកំពុងរង់ចាំ</b>\n\nចុច 🚫 បោះបង់ ដើម្បីបោះបង់',
+            kb=InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]]))
+        return True
+
+    # ── Custom donation amount input ───────────────────────────────────────────
+    if state == 'don_waiting_amount':
+        raw = text.strip()
+        try:
+            amount = float(raw)
+            if amount <= 0:
+                raise ValueError
+        except ValueError:
+            await _send(cid,
+                '❌ <b>ចំនួនមិនត្រឹមត្រូវ!</b>\n\nផ្ញើជាលេខ (ឧ. <code>3.5</code> ឬ <code>10</code>)',
+                kb=InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]]))
+            return True
+        if amount < 0.5:
+            await _send(cid,
+                '❌ <b>ចំនួនតិចពេក!</b> យ៉ាងហោចណាស់ <b>$0.50</b>\n\nផ្ញើចំនួនថ្មី:',
+                kb=InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]]))
+            return True
+        user_info = sess.get('user_info', {})
+        with _data_lock:
+            order_sessions[uid] = {
+                'state': 'donation_pending',
+                'amount': amount,
+                'user_info': user_info,
+            }
+        _save_sessions_bg()
+        await _generate_and_send_donate_qr(client, cid, uid, amount, order_sessions[uid])
         return True
 
     return False

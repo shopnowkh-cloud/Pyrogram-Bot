@@ -585,31 +585,35 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     # ── donate ──────────────────────────────────────────────────────────────
     if d == 'donate':
+        await order_module.send_donate_menu(cid, uid)
+        sess.state = S_MAIN; return
+
+    if d == 'donate_stars':
         await edit_or_send(client, sess, cid,
             '⭐ <b>Donate Star</b>\n\n'
             'សូមអរគុណចំពោះការគាំទ្រ RADY Bot!\n'
             'ជ្រើសរើសចំនួន Star ដែលអ្នកចង់ Donate 👇',
             mkb([
-                [ikb('⭐ 1 Star',   'donate_1')],
-                [ikb('⭐ 5 Stars',  'donate_5')],
-                [ikb('⭐ 10 Stars', 'donate_10')],
-                [ikb('⭐ 50 Stars', 'donate_50')],
-                [ikb('⭐ 100 Stars','donate_100')],
+                [ikb('⭐ 1 Star',   'donate_star_1')],
+                [ikb('⭐ 5 Stars',  'donate_star_5')],
+                [ikb('⭐ 10 Stars', 'donate_star_10')],
+                [ikb('⭐ 50 Stars', 'donate_star_50')],
+                [ikb('⭐ 100 Stars','donate_star_100')],
                 [InlineKeyboardButton('Back', callback_data='home',
                                       icon_custom_emoji_id='5877629862306385808')],
             ]))
         sess.state = S_MAIN; return
 
-    if d.startswith('donate_'):
+    if d.startswith('donate_star_'):
         try:
-            amount = int(d.split('_')[1])
+            amount = int(d.split('donate_star_')[1])
         except Exception:
             return
         await client.send_invoice(
             chat_id=cid,
             title='⭐ Donate to RADY Bot',
             description=f'Donate {amount} Star{"s" if amount > 1 else ""} ដើម្បីគាំទ្រ RADY Bot 🙏',
-            payload=f'donate_{amount}',
+            payload=f'donate_star_{amount}',
             currency='XTR',
             prices=[LabeledPrice(label=f'{amount} Star{"s" if amount > 1 else ""}', amount=amount)],
         )
