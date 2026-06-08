@@ -14,6 +14,8 @@ import dropmail
 from dataclasses import dataclass, field
 from typing import Optional
 
+import order_module
+
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode, ButtonStyle
 from pyrogram.types import (
@@ -279,6 +281,7 @@ async def safe_delete(client: Client, cid: int, mid: int):
 # ── Keyboards ──────────────────────────────────────────────────────────────────
 def main_kb() -> InlineKeyboardMarkup:
     return mkb([
+        [InlineKeyboardButton('🛒 ទិញ Account', callback_data='order')],
         [InlineKeyboardButton('រចនាបថអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942')],
         [InlineKeyboardButton('បំប្លែង PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517'),
          InlineKeyboardButton('បង្កើត QR Code', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
@@ -412,6 +415,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
     uid  = query.from_user.id
     sess = get_sess(uid)
 
+    # ── Dispatch to order module first (handles its own query.answer()) ──────
+    try:
+        if await order_module.handle_order_callback(client, query):
+            return
+    except Exception as _oe:
+        logger.error(f'order_module cb error: {_oe}')
+
     await query.answer()
     save_msg(sess, cid, query.message.id)
 
@@ -427,6 +437,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
         reset_sess(uid); sess = get_sess(uid)
         save_msg(sess, cid, query.message.id)
         await edit_or_send(client, sess, cid, HOME_TEXT, main_kb()); return
+
+    # ── order (buy account) ─────────────────────────────────────────────────
+    if d == 'order':
+        await order_module.send_account_selection(cid); return
 
     # ── style ───────────────────────────────────────────────────────────────
     if d in ('style', 'style_new'):
@@ -606,10 +620,16 @@ async def cb_handler(client: Client, query: CallbackQuery):
     sess.state = S_MAIN
 
 # ── Text message dispatcher ────────────────────────────────────────────────────
-@app.on_message(filters.incoming & filters.text & ~filters.command(['start']) & filters.private)
+@app.on_message(filters.incoming & filters.text & ~filters.command(['start', 'settings', 'order', 'history']) & filters.private)
 async def text_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
+    # Dispatch to order module first (admin input / buy flow states)
+    try:
+        if await order_module.handle_order_message(client, message):
+            return
+    except Exception as _oe:
+        logger.error(f'order_module msg error: {_oe}')
     if   sess.state == S_STYLE:          await handle_style(client, message, sess)
     elif sess.state == S_QR:             await handle_qr_create(client, message, sess)
     elif sess.state == S_PDF_RENAME:     await handle_pdf_rename(client, message, sess)
@@ -1263,6 +1283,29 @@ async def handle_fallback(client: Client, message: Message, sess: UserSession):
     save_msg(sess, cid, msg.id)
 
 
+# ── /settings command ──────────────────────────────────────────────────────────
+@app.on_message(filters.incoming & filters.command('settings') & filters.private)
+async def cmd_settings(client: Client, message: Message):
+    await order_module.handle_settings_command(client, message)
+
+# ── /order command ─────────────────────────────────────────────────────────────
+@app.on_message(filters.incoming & filters.command('order') & filters.private)
+async def cmd_order(client: Client, message: Message):
+    await order_module.handle_order_command(client, message)
+
+# ── /history command ───────────────────────────────────────────────────────────
+@app.on_message(filters.incoming & filters.command('history') & filters.private)
+async def cmd_history(client: Client, message: Message):
+    await order_module.handle_history_command(client, message)
+
+# ── Channel post handler (E-GetS relay) ────────────────────────────────────────
+@app.on_message(filters.channel)
+async def channel_post_handler(client: Client, message: Message):
+    try:
+        await order_module.handle_channel_post(client, message)
+    except Exception as e:
+        logger.error(f'channel_post_handler: {e}')
+
 # ── Stars: pre-checkout ────────────────────────────────────────────────────────
 @app.on_pre_checkout_query()
 async def pre_checkout_handler(client: Client, query: PreCheckoutQuery):
@@ -1291,6 +1334,7 @@ else:
     app.start()
 
 _load_email_sessions()
+order_module.init_order_module(app)
 logger.info('🤖 Bot កំពុង Start...')
 
 _idle_obj = _idle()

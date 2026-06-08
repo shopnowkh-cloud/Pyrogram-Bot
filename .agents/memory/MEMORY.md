@@ -1,0 +1,1 @@
+- [Order module integration](order-module.md) — psycopg2 + PostgreSQL ordering system ported from HTTP Bot API to Pyrogram async; channel filter quirk documented.
