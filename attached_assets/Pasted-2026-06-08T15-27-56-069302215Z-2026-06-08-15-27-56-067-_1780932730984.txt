@@ -1,0 +1,50 @@
+2026-06-08T15:27:56.069302215Z 2026-06-08 15:27:56,067|INFO|Start creating a new auth key on DC2
+2026-06-08T15:27:56.069350566Z 2026-06-08 15:27:56,068|INFO|Connecting...
+2026-06-08T15:27:56.069354166Z 2026-06-08 15:27:56,068|INFO|Connecting to 149.154.167.51:443
+2026-06-08T15:27:56.228662595Z 2026-06-08 15:27:56,228|INFO|Connection established
+2026-06-08T15:27:56.228843069Z 2026-06-08 15:27:56,228|INFO|Connected! Production DC2 - IPv4
+2026-06-08T15:27:57.797462054Z 2026-06-08 15:27:57,797|INFO|Done auth key exchange: DhGenOk
+2026-06-08T15:27:57.797656958Z 2026-06-08 15:27:57,797|INFO|Disconnected
+2026-06-08T15:27:57.804977078Z 2026-06-08 15:27:57,804|INFO|Connecting...
+2026-06-08T15:27:57.80502195Z 2026-06-08 15:27:57,804|INFO|Connecting to 149.154.167.51:443
+2026-06-08T15:27:57.965831679Z 2026-06-08 15:27:57,965|INFO|Connection established
+2026-06-08T15:27:57.965941031Z 2026-06-08 15:27:57,965|INFO|Connected! Production DC2 - IPv4
+2026-06-08T15:27:57.966504533Z 2026-06-08 15:27:57,966|INFO|NetworkTask started
+2026-06-08T15:27:58.12864388Z 2026-06-08 15:27:58,128|INFO|Time synced: offset=-0.082s, server_time=2026-06-08 15:27:58.046420
+2026-06-08T15:27:58.462275436Z 2026-06-08 15:27:58,462|INFO|Session initialized: Pyrogram v2.2.23 (Layer 225)
+2026-06-08T15:27:58.462357767Z 2026-06-08 15:27:58,462|INFO|Device: CPython 3.11.15 - Pyrogram 2.2.23
+2026-06-08T15:27:58.462369777Z 2026-06-08 15:27:58,462|INFO|System: Linux 6.8.0-1047-aws (en)
+2026-06-08T15:27:58.462435309Z 2026-06-08 15:27:58,462|INFO|Session started
+2026-06-08T15:27:58.462770886Z 2026-06-08 15:27:58,462|INFO|PingTask started
+2026-06-08T15:27:58.628558777Z 2026-06-08 15:27:58,628|INFO|PingTask stopped
+2026-06-08T15:27:58.628795522Z 2026-06-08 15:27:58,628|INFO|Disconnected
+2026-06-08T15:27:58.628847083Z 2026-06-08 15:27:58,628|INFO|NetworkTask stopped
+2026-06-08T15:27:58.628900144Z 2026-06-08 15:27:58,628|INFO|Session stopped
+2026-06-08T15:27:58.629580388Z Traceback (most recent call last):
+2026-06-08T15:27:58.629593318Z   File "/app/bot.py", line 914, in <module>
+2026-06-08T15:27:58.630176961Z     app.start()
+2026-06-08T15:27:58.630286503Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/sync.py", line 62, in async_to_sync_wrap
+2026-06-08T15:27:58.630402765Z     return loop.run_until_complete(coroutine)
+2026-06-08T15:27:58.630412095Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T15:27:58.630415745Z   File "/usr/local/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+2026-06-08T15:27:58.63065431Z     return future.result()
+2026-06-08T15:27:58.63066024Z            ^^^^^^^^^^^^^^^
+2026-06-08T15:27:58.63066316Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/methods/utilities/start.py", line 89, in start
+2026-06-08T15:27:58.630791653Z     await self.authorize()
+2026-06-08T15:27:58.630801713Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/client.py", line 473, in authorize
+2026-06-08T15:27:58.630990957Z     return await self.sign_in_bot(self.bot_token)
+2026-06-08T15:27:58.631000587Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T15:27:58.631002738Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/methods/auth/sign_in_bot.py", line 50, in sign_in_bot
+2026-06-08T15:27:58.63113348Z     r = await self.invoke(
+2026-06-08T15:27:58.63113941Z         ^^^^^^^^^^^^^^^^^^
+2026-06-08T15:27:58.63114236Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/methods/advanced/invoke.py", line 107, in invoke
+2026-06-08T15:27:58.631289583Z     r = await session.invoke(
+2026-06-08T15:27:58.631297733Z         ^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T15:27:58.631300013Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/session/session.py", line 551, in invoke
+2026-06-08T15:27:58.631499868Z     return await self.send(query, timeout=timeout)
+2026-06-08T15:27:58.631509178Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-06-08T15:27:58.631513028Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/session/session.py", line 514, in send
+2026-06-08T15:27:58.631716212Z     RPCError.raise_it(result, type(data))
+2026-06-08T15:27:58.631724392Z   File "/usr/local/lib/python3.11/site-packages/pyrogram/errors/rpc_error.py", line 91, in raise_it
+2026-06-08T15:27:58.631875505Z     raise getattr(
+2026-06-08T15:27:58.631881376Z pyrogram.errors.exceptions.flood_420.FloodWait: Telegram says: [420 FLOOD_WAIT_X] - Please wait 1101 seconds before repeating the action. (caused by "auth.ImportBotAuthorization")
