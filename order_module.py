@@ -761,8 +761,8 @@ def _donate_ikb():
         rows.append(row)
     rows.append([_ikb('✏️ ចំនួនផ្ទាល់ខ្លួន', 'don_custom')])
     rows.append([_ikb('🏆 Top Donation', 'don_top')])
-    rows.append([InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
-                                      icon_custom_emoji_id='5282843764451195532')])
+    rows.append([InlineKeyboardButton('Back', callback_data='donate',
+                                      icon_custom_emoji_id='5877629862306385808')])
     return InlineKeyboardMarkup(rows)
 
 

@@ -557,11 +557,19 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     # ── donate ──────────────────────────────────────────────────────────────
     if d == 'donate':
-        await order_module.send_donate_menu(cid, uid, query=query)
+        await edit(
+            '💝 <b>Donate — ជ្រើសរើសវិធីបរិច្ចាគ</b>\n\n'
+            'ការគាំទ្ររបស់អ្នកជួយឱ្យ Bot នេះបន្តដំណើរការ 🙏',
+            mkb([
+                [ikb('🏦 KHQR (Bakong)', 'donate_khpay'),
+                 ikb('⭐ Telegram Star',  'donate_stars')],
+                [InlineKeyboardButton('Back', callback_data='home',
+                                      icon_custom_emoji_id='5877629862306385808')],
+            ]))
         sess.state = S_MAIN; return
 
     if d == 'donate_stars':
-        await edit_or_send(client, sess, cid,
+        await edit(
             '⭐ <b>Donate Star</b>\n\n'
             'សូមអរគុណចំពោះការគាំទ្រ RADY Bot!\n'
             'ជ្រើសរើសចំនួន Star ដែលអ្នកចង់ Donate 👇',
@@ -571,7 +579,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 [ikb('⭐ 10 Stars', 'donate_star_10')],
                 [ikb('⭐ 50 Stars', 'donate_star_50')],
                 [ikb('⭐ 100 Stars','donate_star_100')],
-                [InlineKeyboardButton('Back', callback_data='home',
+                [InlineKeyboardButton('Back', callback_data='donate',
                                       icon_custom_emoji_id='5877629862306385808')],
             ]))
         sess.state = S_MAIN; return
