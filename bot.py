@@ -281,13 +281,13 @@ async def safe_delete(client: Client, cid: int, mid: int):
 # ── Keyboards ──────────────────────────────────────────────────────────────────
 def main_kb() -> InlineKeyboardMarkup:
     return mkb([
-        [InlineKeyboardButton('🛒 ទិញ Account', callback_data='order')],
         [InlineKeyboardButton('រចនាបថអក្សរ', callback_data='style', icon_custom_emoji_id='5197269100878907942')],
         [InlineKeyboardButton('បំប្លែង PDF', callback_data='doc', icon_custom_emoji_id='5838982342122674517'),
          InlineKeyboardButton('បង្កើត QR Code', callback_data='qr', icon_custom_emoji_id='5440410042773824003')],
         [InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
         [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935')],
         [InlineKeyboardButton('Email Temporary', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
+        [InlineKeyboardButton('🛒 ទិញ Account', callback_data='order')],
         [InlineKeyboardButton('Donate', callback_data='donate', icon_custom_emoji_id='5897474556834091884')],
     ])
 
