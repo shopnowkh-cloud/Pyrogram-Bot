@@ -281,6 +281,7 @@ def main_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton('Remove BG', callback_data='rmbg', icon_custom_emoji_id='5395663879483181935'),
          InlineKeyboardButton('ហាងឆេងមាស', callback_data='gold', icon_custom_emoji_id='5429651785352501917')],
         [InlineKeyboardButton('Email Temporary', callback_data='email', icon_custom_emoji_id='6271565748754190308')],
+        [InlineKeyboardButton('🎙 បង្កើតសំឡេង Ai', url='http://t.me/Text2Voice2026bot')],
         [InlineKeyboardButton('🛒 ទិញ Account', callback_data='order')],
         [InlineKeyboardButton('Donate', callback_data='donate', icon_custom_emoji_id='5897474556834091884')],
     ])

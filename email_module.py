@@ -221,7 +221,6 @@ def email_active_kb(addr: str) -> InlineKeyboardMarkup:
          InlineKeyboardButton("🔄 អ៊ីម៉ែលថ្មី",   callback_data="em_new")],
         [InlineKeyboardButton("📓 List",            callback_data="em_list"),
          InlineKeyboardButton("🗑 លុបអ៊ីម៉ែល",    callback_data="em_del")],
-        [InlineKeyboardButton("🎙 បង្កើតសំឡេង Ai", url="http://t.me/Text2Voice2026bot")],
         [InlineKeyboardButton("Back", callback_data="home",
                               icon_custom_emoji_id="5877629862306385808")],
     ])
@@ -231,7 +230,6 @@ def email_empty_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✉️ Email ថ្មី", callback_data="em_new")],
         [InlineKeyboardButton("📓 List",       callback_data="em_list")],
-        [InlineKeyboardButton("🎙 បង្កើតសំឡេង Ai", url="http://t.me/Text2Voice2026bot")],
         [InlineKeyboardButton("Back", callback_data="home",
                               icon_custom_emoji_id="5877629862306385808")],
     ])
@@ -243,7 +241,6 @@ def inbox_kb() -> InlineKeyboardMarkup:
          InlineKeyboardButton("🔄 អ៊ីម៉ែលថ្មី",  callback_data="em_new")],
         [InlineKeyboardButton("📓 List",           callback_data="em_list"),
          InlineKeyboardButton("🗑 លុបអ៊ីម៉ែល",   callback_data="em_del")],
-        [InlineKeyboardButton("🎙 បង្កើតសំឡេង Ai", url="http://t.me/Text2Voice2026bot")],
         [InlineKeyboardButton("Back", callback_data="home",
                               icon_custom_emoji_id="5877629862306385808")],
     ])
