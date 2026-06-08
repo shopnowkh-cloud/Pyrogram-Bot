@@ -490,12 +490,10 @@ _KB_BAKONG    = '🔑 Bakong Token'
 _KB_ADMINS    = '👑 Admins'
 _KB_MAINT     = '🛠 Maintenance'
 _KB_BROADCAST = '📢 Broadcast'
-_KB_CLOSE     = '✖️ បិទ'
-
 _ADMIN_KB_LABELS = {
     _KB_ADD_ACC, _KB_DEL_TYPE, _KB_BUYERS, _KB_USERS,
     _KB_PAYMENT, _KB_CHANNEL, _KB_BAKONG, _KB_ADMINS,
-    _KB_MAINT, _KB_BROADCAST, _KB_CLOSE,
+    _KB_MAINT, _KB_BROADCAST,
 }
 
 
@@ -506,7 +504,6 @@ def _settings_main_ikb():
         [_ikb('💳 Payment Name', 's:pay'),          _ikb('📢 Channel ID', 's:ch')],
         [_ikb('🔑 Bakong Token', 's:bak'),           _ikb('👑 Admins', 's:adm')],
         [_ikb('🛠 Maintenance', 's:mnt'),            _ikb('📢 Broadcast', 's:broadcast')],
-        [_ikb('✖️ បិទ', 's:close')],
     ])
 
 
@@ -517,7 +514,6 @@ def _settings_main_rkb():
         [KeyboardButton(_KB_PAYMENT),  KeyboardButton(_KB_CHANNEL)],
         [KeyboardButton(_KB_BAKONG),   KeyboardButton(_KB_ADMINS)],
         [KeyboardButton(_KB_MAINT),    KeyboardButton(_KB_BROADCAST)],
-        [KeyboardButton(_KB_CLOSE)],
     ], resize_keyboard=True)
 
 
@@ -1931,9 +1927,7 @@ async def handle_order_message(client, message: Message) -> bool:
         busy_states = {'waiting_for_accounts', 'waiting_for_account_type',
                        'waiting_for_price', 'waiting_for_del_confirm', 'broadcast_confirm'}
         if not state.startswith('admin_input:') and state not in busy_states:
-            if text == _KB_CLOSE:
-                await _send(cid, "✅ Admin Panel បានបិទ", kb=ReplyKeyboardRemove())
-            elif text == _KB_ADD_ACC:
+            if text == _KB_ADD_ACC:
                 await _start_add_account_flow(cid, uid)
             elif text == _KB_DEL_TYPE:
                 await _show_del_type_panel(cid, uid)
