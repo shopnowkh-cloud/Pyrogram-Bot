@@ -33,6 +33,6 @@ import fitz; \
 import httpx; \
 print('All imports OK')"
 
-COPY bot.py dropmail.py ./
+COPY bot.py dropmail.py email_module.py order_module.py ./
 
 CMD ["python", "bot.py"]
