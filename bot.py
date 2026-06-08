@@ -83,7 +83,6 @@ class UserSession:
     email_addr_id:   Optional[str]  = None
     email_restore:   Optional[str]  = None
     email_last_id:   Optional[str]  = None
-    biz_conn_id:     Optional[str]  = None
 
 
 _sessions: dict[int, UserSession] = {}
@@ -256,77 +255,20 @@ async def download_file(client: Client, file_id: str) -> bytes:
     return bytes(result.getbuffer()) if hasattr(result, 'getbuffer') else result.read()
 
 async def edit_or_send(client: Client, sess: UserSession, cid: int, text: str, markup=None):
-    biz = sess.biz_conn_id
-    if sess.mid and not biz:
+    if sess.mid:
         try:
             await client.edit_message_text(cid, sess.mid, text, reply_markup=markup, parse_mode=ParseMode.HTML)
             return
         except Exception:
             pass
-    kwargs = dict(reply_markup=markup, parse_mode=ParseMode.HTML)
-    if biz:
-        kwargs['business_connection_id'] = biz
-        text = _biz_text(text)
-        if markup is not None:
-            kwargs['reply_markup'] = _biz_kb(markup)
-    msg = await client.send_message(cid, text, **kwargs)
+    msg = await client.send_message(cid, text, reply_markup=markup, parse_mode=ParseMode.HTML)
     save_msg(sess, cid, msg.id)
 
-_EMOJI_TAG_RE = re.compile(r'<emoji id="\d+">(.*?)</emoji>', re.DOTALL)
-
-def _biz_text(text: str) -> str:
-    return _EMOJI_TAG_RE.sub(r'\1', text)
-
-def _strip_kb_icons(kb):
-    if not isinstance(kb, InlineKeyboardMarkup):
-        return kb
-    new_rows = []
-    for row in kb.inline_keyboard:
-        new_row = []
-        for btn in row:
-            if getattr(btn, 'icon_custom_emoji_id', None):
-                new_row.append(InlineKeyboardButton(
-                    text=btn.text,
-                    callback_data=getattr(btn, 'callback_data', None),
-                    copy_text=getattr(btn, 'copy_text', None),
-                ))
-            else:
-                new_row.append(btn)
-        new_rows.append(new_row)
-    return InlineKeyboardMarkup(new_rows)
-
 async def _send(client: Client, sess: UserSession, cid: int, text: str, **kwargs):
-    if sess.biz_conn_id:
-        kwargs['business_connection_id'] = sess.biz_conn_id
-        text = _biz_text(text)
-    try:
-        return await client.send_message(cid, text, **kwargs)
-    except Exception as e:
-        if sess.biz_conn_id and 'reply_markup' in kwargs:
-            kwargs['reply_markup'] = _strip_kb_icons(kwargs['reply_markup'])
-            try:
-                return await client.send_message(cid, text, **kwargs)
-            except Exception as e2:
-                logger.error(f'_send fallback: {e2}')
-                raise
-        raise
+    return await client.send_message(cid, text, **kwargs)
 
 async def _send_doc(client: Client, sess: UserSession, cid: int, doc, **kwargs):
-    if sess.biz_conn_id:
-        kwargs['business_connection_id'] = sess.biz_conn_id
-        if 'caption' in kwargs:
-            kwargs['caption'] = _biz_text(kwargs['caption'])
-    try:
-        return await client.send_document(cid, doc, **kwargs)
-    except Exception as e:
-        if sess.biz_conn_id and 'reply_markup' in kwargs:
-            kwargs['reply_markup'] = _strip_kb_icons(kwargs['reply_markup'])
-            try:
-                return await client.send_document(cid, doc, **kwargs)
-            except Exception as e2:
-                logger.error(f'_send_doc fallback: {e2}')
-                raise
-        raise
+    return await client.send_document(cid, doc, **kwargs)
 
 async def safe_delete(client: Client, cid: int, mid: int):
     try:
@@ -458,14 +400,9 @@ async def cmd_start(client: Client, message: Message):
     uid  = message.from_user.id
     sess = reset_sess(uid)
     cid  = message.chat.id
-    biz  = getattr(message, 'business_connection_id', None)
-    sess.biz_conn_id = biz
-    kwargs = dict(reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-    if biz:
-        kwargs['business_connection_id'] = biz
-    msg = await client.send_message(cid, HOME_TEXT, **kwargs)
+    msg = await client.send_message(cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
     save_msg(sess, cid, msg.id)
-    logger.info(f'[/start] uid={uid} biz={biz}')
+    logger.info(f'[/start] uid={uid}')
 
 # ── Callback handler ───────────────────────────────────────────────────────────
 @app.on_callback_query()
@@ -669,11 +606,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
     sess.state = S_MAIN
 
 # ── Text message dispatcher ────────────────────────────────────────────────────
-@app.on_message(filters.incoming & filters.text & ~filters.command(['start']) & (filters.private | filters.business))
+@app.on_message(filters.incoming & filters.text & ~filters.command(['start']) & filters.private)
 async def text_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
-    sess.biz_conn_id = getattr(message, 'business_connection_id', None)
     if   sess.state == S_STYLE:          await handle_style(client, message, sess)
     elif sess.state == S_QR:             await handle_qr_create(client, message, sess)
     elif sess.state == S_PDF_RENAME:     await handle_pdf_rename(client, message, sess)
@@ -686,36 +622,12 @@ async def text_handler(client: Client, message: Message):
 async def media_handler(client: Client, message: Message):
     uid  = message.from_user.id
     sess = get_sess(uid)
-    sess.biz_conn_id = None
     if   sess.state == S_PDF:     await handle_pdf_photo(client, message, sess)
     elif sess.state == S_PDF2IMG: await handle_pdf2img(client, message, sess)
     elif sess.state == S_QR:      await handle_qr_scan(client, message, sess)
     elif sess.state == S_RMBG:    await handle_rmbg(client, message, sess)
     else:                         await handle_fallback(client, message, sess)
 
-
-# ── Business message handlers ───────────────────────────────────────────────────
-@app.on_business_message(filters.text & ~filters.command(['start']))
-async def biz_text_handler(client: Client, message: Message):
-    uid  = message.from_user.id
-    sess = get_sess(uid)
-    sess.biz_conn_id = message.business_connection_id
-    if   sess.state == S_STYLE:          await handle_style(client, message, sess)
-    elif sess.state == S_QR:             await handle_qr_create(client, message, sess)
-    elif sess.state == S_PDF_RENAME:     await handle_pdf_rename(client, message, sess)
-    elif sess.state == S_EMAIL_RESTORE:  await handle_email_restore_input(client, message, sess)
-    else:                                await handle_fallback(client, message, sess)
-
-@app.on_business_message(filters.photo | filters.document)
-async def biz_media_handler(client: Client, message: Message):
-    uid  = message.from_user.id
-    sess = get_sess(uid)
-    sess.biz_conn_id = message.business_connection_id
-    if   sess.state == S_PDF:     await handle_pdf_photo(client, message, sess)
-    elif sess.state == S_PDF2IMG: await handle_pdf2img(client, message, sess)
-    elif sess.state == S_QR:      await handle_qr_scan(client, message, sess)
-    elif sess.state == S_RMBG:    await handle_rmbg(client, message, sess)
-    else:                         await handle_fallback(client, message, sess)
 
 # ── Style handler ──────────────────────────────────────────────────────────────
 async def handle_style(client: Client, message: Message, sess: UserSession):
@@ -1000,7 +912,7 @@ def _load_email_sessions():
 
 
 # ── Email: polling loop ────────────────────────────────────────────────────────
-async def _email_poll_loop(client: Client, uid: int, cid: int, biz_conn_id: str = None):
+async def _email_poll_loop(client: Client, uid: int, cid: int):
     no_sess_retries = 0
     while True:
         await asyncio.sleep(POLL_INTERVAL)
@@ -1054,16 +966,13 @@ async def _email_poll_loop(client: Client, uid: int, cid: int, biz_conn_id: str 
                         sess.email_addr_id = None
                         sess.email_restore = None
                         try:
-                            _ekwargs = dict(reply_markup=email_kb(), parse_mode=ParseMode.HTML)
-                            if biz_conn_id:
-                                _ekwargs['business_connection_id'] = biz_conn_id
                             await client.send_message(
                                 cid,
                                 f'⚠️ <b>Email Session ផុតកំណត់</b>\n\n'
                                 f'📋 <code>{expired_addr}</code>\n\n'
                                 f'Session នេះបានផុតកំណត់ហើយ។ '
                                 f'ចុច ✉️ <b>Email ថ្មី</b> ដើម្បីចាប់ផ្ដើមថ្មី។',
-                                **_ekwargs,
+                                reply_markup=email_kb(), parse_mode=ParseMode.HTML,
                             )
                         except Exception:
                             pass
@@ -1079,9 +988,6 @@ async def _email_poll_loop(client: Client, uid: int, cid: int, biz_conn_id: str 
             to     = mail.get('toAddr')        or sess.email_address or ''
             body   = (mail.get('text') or '').strip()
             try:
-                _mkwargs = dict(parse_mode=ParseMode.HTML)
-                if biz_conn_id:
-                    _mkwargs['business_connection_id'] = biz_conn_id
                 await client.send_message(
                     cid,
                     f'📨 <b>Email ថ្មី!</b>\n'
@@ -1089,7 +995,7 @@ async def _email_poll_loop(client: Client, uid: int, cid: int, biz_conn_id: str 
                     f'👤 <b>From:</b> {sender}\n'
                     f'📬 <b>To:</b> {to}\n\n'
                     f'{body or "<i>(ទទេ)</i>"}',
-                    **_mkwargs,
+                    parse_mode=ParseMode.HTML,
                 )
             except Exception as se:
                 logger.warning(f'email_poll send uid={uid}: {se}')
@@ -1097,10 +1003,10 @@ async def _email_poll_loop(client: Client, uid: int, cid: int, biz_conn_id: str 
     _polling_tasks.pop(uid, None)
 
 # ── Email: watchdog (auto-restart on crash) ────────────────────────────────────
-async def _email_poll_watchdog(client: Client, uid: int, cid: int, biz_conn_id: str = None):
+async def _email_poll_watchdog(client: Client, uid: int, cid: int):
     while True:
         try:
-            await _email_poll_loop(client, uid, cid, biz_conn_id)
+            await _email_poll_loop(client, uid, cid)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -1109,10 +1015,10 @@ async def _email_poll_watchdog(client: Client, uid: int, cid: int, biz_conn_id: 
             continue
         break  # clean exit
 
-def start_email_polling(client: Client, uid: int, cid: int, biz_conn_id: str = None):
+def start_email_polling(client: Client, uid: int, cid: int):
     stop_email_polling(uid)
     _polling_tasks[uid] = asyncio.get_event_loop().create_task(
-        _email_poll_watchdog(client, uid, cid, biz_conn_id)
+        _email_poll_watchdog(client, uid, cid)
     )
 
 def stop_email_polling(uid: int):
@@ -1146,7 +1052,7 @@ async def handle_email_menu(client: Client, sess: UserSession, cid: int, edit_fn
             sess.email_addr_id = live.get('address_id')
             if live.get('restore_key'):
                 sess.email_restore = live['restore_key']
-            start_email_polling(client, uid, cid, sess.biz_conn_id)
+            start_email_polling(client, uid, cid)
     if sess.email_address:
         addr = sess.email_address
         kb = mkb([
@@ -1179,7 +1085,7 @@ async def handle_email_new(client: Client, sess: UserSession, cid: int, edit_fn,
     sess.email_last_id = None
     _history_add(uid, result['email'])
     _save_email_sessions()
-    start_email_polling(client, uid, cid, sess.biz_conn_id)
+    start_email_polling(client, uid, cid)
     addr    = result['email']
     restore = result['restore_key']
     await edit_fn(
@@ -1282,7 +1188,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
             sess.email_last_id = None
             _history_add(uid, addr)
             if uid not in _polling_tasks:
-                start_email_polling(client, uid, cid, sess.biz_conn_id)
+                start_email_polling(client, uid, cid)
             await m.edit_text(
                 f'✅ <b>Email Resume ស្វ័យប្រវត្តិ!</b>\n\n'
                 f'📋 <code>{sess.email_address}</code>\n'
@@ -1309,7 +1215,7 @@ async def handle_email_restore_input(client: Client, message: Message, sess: Use
     sess.email_last_id = None
     _history_add(uid, result['email'])
     _save_email_sessions()
-    start_email_polling(client, uid, cid, sess.biz_conn_id)
+    start_email_polling(client, uid, cid)
     await m.edit_text(
         f'✅ <b>Restore បានជោគជ័យ!</b>\n\n'
         f'🔑 <b>Restore Key:</b>\n<code>{sess.email_restore}</code>',
@@ -1351,9 +1257,7 @@ async def handle_email_delete(client: Client, sess: UserSession, cid: int, edit_
 # ── Fallback ───────────────────────────────────────────────────────────────────
 async def handle_fallback(client: Client, message: Message, sess: UserSession):
     uid = message.from_user.id
-    biz_conn_id = sess.biz_conn_id
     reset_sess(uid); sess = get_sess(uid)
-    sess.biz_conn_id = biz_conn_id
     cid = message.chat.id
     msg = await _send(client, sess, cid, HOME_TEXT, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
     save_msg(sess, cid, msg.id)
