@@ -404,8 +404,16 @@ def _dm_gql(query: str, variables: Optional[dict] = None, uid: Optional[int] = N
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
-    resp = requests.post(_dm_get_url(), json=payload, timeout=8)
-    resp.raise_for_status()
+    try:
+        resp = requests.post(_dm_get_url(), json=payload, timeout=8)
+        if resp.status_code == 503:
+            _dm_mark_503()
+            resp.raise_for_status()
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if "503" in str(e):
+            _dm_mark_503()
+        raise
     return resp.json()
 
 def dm_create_session(uid: int) -> Optional[dict]:
@@ -551,6 +559,16 @@ def dm_get_new_mails(session_id: str, uid: int, after_mail_id: Optional[str] = N
 DATABASE_URL      = os.environ.get("DATABASE_URL", "")
 EM_POLL_INTERVAL  = 3
 EM_RESTORE_INTERVAL = 600
+
+# Circuit breaker: when DropMail returns 503, pause all loops for 60s
+_dm_503_backoff_until: float = 0.0
+
+def _dm_mark_503():
+    global _dm_503_backoff_until
+    _dm_503_backoff_until = time.time() + 60
+
+def _dm_is_backoff() -> bool:
+    return time.time() < _dm_503_backoff_until
 
 # ── DB Connection Pool (shared by email + order modules) ──────────────────────
 import psycopg2.pool as _pg_pool
@@ -728,6 +746,16 @@ def em_get_all_history_entries() -> list:
             cur.execute(
                 "SELECT * FROM email_history WHERE restore_key IS NOT NULL")
             return [dict(r) for r in cur.fetchall()]
+
+
+def em_clear_restore_key(history_id: int):
+    """Mark an email history entry as permanently unrestorable (already_in_use)."""
+    with _em_conn() as c:
+        with c.cursor() as cur:
+            cur.execute(
+                "UPDATE email_history SET restore_key=NULL, dropmail_session_id=NULL WHERE id=%s",
+                (history_id,))
+        c.commit()
 
 
 def em_get_history_entry_by_email(telegram_user_id, email_address) -> Optional[dict]:
@@ -1016,24 +1044,28 @@ async def _em_poll_one(entry: dict):
         except Exception as e:
             logger.warning(f"Restore failed [{email_address}]: {e}")
             return
-        if restored and not restored.get("already_in_use"):
-            def _persist_restore():
-                em_update_history_session(
-                    history_id,
-                    new_session_id=restored["session_id"],
-                    new_address_id=restored.get("address_id"),
-                    new_restore_key=restored.get("restore_key"),
-                )
-                cur_sess = em_get_session(user_id)
-                if cur_sess and cur_sess.get("email_address") == email_address:
-                    em_update_session_after_restore(
-                        telegram_user_id=user_id,
+        if restored:
+            if restored.get("already_in_use"):
+                logger.info(f"Poll restore [{email_address}]: already_in_use → clearing restore_key")
+                await loop.run_in_executor(None, em_clear_restore_key, history_id)
+            else:
+                def _persist_restore():
+                    em_update_history_session(
+                        history_id,
                         new_session_id=restored["session_id"],
                         new_address_id=restored.get("address_id"),
                         new_restore_key=restored.get("restore_key"),
                     )
-            await loop.run_in_executor(None, _persist_restore)
-            logger.info(f"Restored [{email_address}] → session {restored['session_id']}")
+                    cur_sess = em_get_session(user_id)
+                    if cur_sess and cur_sess.get("email_address") == email_address:
+                        em_update_session_after_restore(
+                            telegram_user_id=user_id,
+                            new_session_id=restored["session_id"],
+                            new_address_id=restored.get("address_id"),
+                            new_restore_key=restored.get("restore_key"),
+                        )
+                await loop.run_in_executor(None, _persist_restore)
+                logger.info(f"Restored [{email_address}] → session {restored['session_id']}")
         return
     if not mails:
         return
@@ -1078,9 +1110,15 @@ async def _em_restore_one(entry: dict):
         restored = await loop.run_in_executor(
             None, dm_restore_session, email_address, restore_key, user_id)
     except Exception as e:
-        logger.warning(f"Restore failed [{email_address}]: {e}")
+        if "503" not in str(e):
+            logger.warning(f"Proactive restore failed [{email_address}]: {e}")
         return
-    if not restored or restored.get("already_in_use"):
+    if not restored:
+        return
+    if restored.get("already_in_use"):
+        # Session permanently taken — stop retrying forever
+        logger.info(f"Restore [{email_address}]: already_in_use → clearing restore_key")
+        await loop.run_in_executor(None, em_clear_restore_key, history_id)
         return
     def _persist():
         em_update_history_session(
@@ -1104,11 +1142,12 @@ async def _em_restore_one(entry: dict):
 async def _em_poll_loop():
     while True:
         try:
-            loop = asyncio.get_running_loop()
-            entries = await loop.run_in_executor(None, em_get_all_history_entries)
-            tasks = [_em_poll_one(e) for e in entries if e.get("dropmail_session_id")]
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            if not _dm_is_backoff():
+                loop = asyncio.get_running_loop()
+                entries = await loop.run_in_executor(None, em_get_all_history_entries)
+                tasks = [_em_poll_one(e) for e in entries if e.get("dropmail_session_id")]
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             logger.error(f"poll_loop error: {e}")
         await asyncio.sleep(EM_POLL_INTERVAL)
@@ -1118,6 +1157,9 @@ async def _em_restore_loop():
     while True:
         await asyncio.sleep(EM_RESTORE_INTERVAL)
         try:
+            if _dm_is_backoff():
+                logger.info("restore_loop: DropMail backoff active, skipping")
+                continue
             loop = asyncio.get_running_loop()
             entries = await loop.run_in_executor(None, em_get_all_history_entries)
             tasks = [_em_restore_one(e) for e in entries if not e.get("dropmail_session_id")]
