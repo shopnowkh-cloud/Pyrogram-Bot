@@ -20,6 +20,7 @@ import psycopg2.extras
 
 from pyrogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
     Message, CallbackQuery
 )
 from pyrogram.enums import ParseMode
@@ -479,6 +480,25 @@ def _back_btn(cb='o:home'):
                                 icon_custom_emoji_id='5877629862306385808')
 
 
+_KB_ADD_ACC   = '➕ បន្ថែម Account'
+_KB_DEL_TYPE  = '🗑 លុបប្រភេទ'
+_KB_BUYERS    = '📋 របាយការណ៍ទិញ'
+_KB_USERS     = '👥 អ្នកប្រើ'
+_KB_PAYMENT   = '💳 Payment Name'
+_KB_CHANNEL   = '📢 Channel ID'
+_KB_BAKONG    = '🔑 Bakong Token'
+_KB_ADMINS    = '👑 Admins'
+_KB_MAINT     = '🛠 Maintenance'
+_KB_BROADCAST = '📢 Broadcast'
+_KB_CLOSE     = '✖️ បិទ'
+
+_ADMIN_KB_LABELS = {
+    _KB_ADD_ACC, _KB_DEL_TYPE, _KB_BUYERS, _KB_USERS,
+    _KB_PAYMENT, _KB_CHANNEL, _KB_BAKONG, _KB_ADMINS,
+    _KB_MAINT, _KB_BROADCAST, _KB_CLOSE,
+}
+
+
 def _settings_main_ikb():
     return InlineKeyboardMarkup([
         [_ikb('➕ បន្ថែម Account', 's:add_acc'),  _ikb('🗑 លុបប្រភេទ', 's:del_type')],
@@ -488,6 +508,17 @@ def _settings_main_ikb():
         [_ikb('🛠 Maintenance', 's:mnt'),            _ikb('📢 Broadcast', 's:broadcast')],
         [_ikb('✖️ បិទ', 's:close')],
     ])
+
+
+def _settings_main_rkb():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton(_KB_ADD_ACC),  KeyboardButton(_KB_DEL_TYPE)],
+        [KeyboardButton(_KB_BUYERS),   KeyboardButton(_KB_USERS)],
+        [KeyboardButton(_KB_PAYMENT),  KeyboardButton(_KB_CHANNEL)],
+        [KeyboardButton(_KB_BAKONG),   KeyboardButton(_KB_ADMINS)],
+        [KeyboardButton(_KB_MAINT),    KeyboardButton(_KB_BROADCAST)],
+        [KeyboardButton(_KB_CLOSE)],
+    ], resize_keyboard=True)
 
 
 def _settings_cancel_ikb():
@@ -599,9 +630,10 @@ async def _settings_main_text():
 
 async def send_admin_settings(client, chat_id, user_id):
     text = "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើសប្រតិបត្តិការ៖"
-    msg = await _send(chat_id, text, kb=_settings_main_ikb())
-    if msg:
-        _admin_order_msg[user_id] = msg.id
+    mid = _admin_order_msg.pop(user_id, None)
+    if mid:
+        await _del_msg(chat_id, mid)
+    await _send(chat_id, text, kb=_settings_main_rkb())
 
 
 async def _prompt_admin_input(chat_id, user_id, key, prompt, return_menu='main'):
@@ -1330,9 +1362,12 @@ async def _handle_admin_input(client, chat_id, user_id, key, text, message: Mess
     cancel_words = {'បោះបង់', '🚫 បោះបង់'}
     if raw in cancel_words:
         _finish()
-        await _settings_edit(chat_id, user_id,
-            "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើសប្រតិបត្តិការ:",
-            _settings_main_ikb())
+        mid = _admin_order_msg.pop(user_id, None)
+        if mid:
+            await _del_msg(chat_id, mid)
+        await _send(chat_id,
+            "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើសប្រតិបត្តិការ៖",
+            kb=_settings_main_rkb())
         return True
 
     if key == 'payment':
@@ -1749,19 +1784,25 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
 
         if action == 'close':
             await _del_msg(cid, query.message.id)
+            _admin_order_msg.pop(uid, None)
+            await _send(cid, "✅ Admin Panel បានបិទ", kb=ReplyKeyboardRemove())
             return True
         if action == 'main':
-            await _settings_edit(cid, uid,
-                "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើស:",
-                _settings_main_ikb())
+            await _del_msg(cid, query.message.id)
+            _admin_order_msg.pop(uid, None)
+            await _send(cid,
+                "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើសប្រតិបត្តិការ៖",
+                kb=_settings_main_rkb())
             return True
         if action == 'cancel_input':
             with _data_lock:
                 order_sessions.pop(uid, None)
             _save_sessions_bg()
-            await _settings_edit(cid, uid,
-                "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើស:",
-                _settings_main_ikb())
+            await _del_msg(cid, query.message.id)
+            _admin_order_msg.pop(uid, None)
+            await _send(cid,
+                "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើសប្រតិបត្តិការ៖",
+                kb=_settings_main_rkb())
             return True
         if action == 'pay':
             await _show_pay_panel(cid, uid); return True
@@ -1883,10 +1924,40 @@ async def handle_order_message(client, message: Message) -> bool:
             user.first_name or '', user.last_name or '', user.username or ''))
 
     sess = order_sessions.get(uid)
+    state = sess.get('state', '') if sess else ''
+
+    # ── Admin Reply Keyboard buttons ──────────────────────────────────────────
+    if is_admin(uid) and text in _ADMIN_KB_LABELS:
+        busy_states = {'waiting_for_accounts', 'waiting_for_account_type',
+                       'waiting_for_price', 'waiting_for_del_confirm', 'broadcast_confirm'}
+        if not state.startswith('admin_input:') and state not in busy_states:
+            if text == _KB_CLOSE:
+                await _send(cid, "✅ Admin Panel បានបិទ", kb=ReplyKeyboardRemove())
+            elif text == _KB_ADD_ACC:
+                await _start_add_account_flow(cid, uid)
+            elif text == _KB_DEL_TYPE:
+                await _show_del_type_panel(cid, uid)
+            elif text == _KB_BUYERS:
+                await _export_buyers_panel(cid)
+            elif text == _KB_USERS:
+                await _show_users_panel(cid)
+            elif text == _KB_PAYMENT:
+                await _show_pay_panel(cid, uid)
+            elif text == _KB_CHANNEL:
+                await _show_ch_panel(cid, uid)
+            elif text == _KB_BAKONG:
+                await _show_bak_panel(cid, uid)
+            elif text == _KB_ADMINS:
+                await _show_adm_panel(cid, uid)
+            elif text == _KB_MAINT:
+                await _show_mnt_panel(cid, uid)
+            elif text == _KB_BROADCAST:
+                await _prompt_admin_input(cid, uid, 'broadcast',
+                    "📢 <b>Broadcast</b>\n\nផ្ញើ​សារ​ (text/photo/file) ដែលចង់ផ្សាយ:", 'main')
+            return True
+
     if not sess:
         return False
-
-    state = sess.get('state', '')
 
     # ── Admin input states ────────────────────────────────────────────────────
     if state.startswith('admin_input:') and is_admin(uid):
