@@ -13,4 +13,5 @@ dependencies = [
     "PyMuPDF>=1.23.0",
     "httpx>=0.25.0",
     "requests>=2.32.0",
+    "psycopg2-binary>=2.9.0",
 ]
