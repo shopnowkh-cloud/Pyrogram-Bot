@@ -2018,11 +2018,6 @@ async def handle_order_message(client, message: Message) -> bool:
                 '❌ <b>ចំនួនមិនត្រឹមត្រូវ!</b>\n\nផ្ញើជាលេខ (ឧ. <code>3.5</code> ឬ <code>10</code>)',
                 kb=InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]]))
             return True
-        if amount < 0.5:
-            await _send(cid,
-                '❌ <b>ចំនួនតិចពេក!</b> យ៉ាងហោចណាស់ <b>$0.50</b>\n\nផ្ញើចំនួនថ្មី:',
-                kb=InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]]))
-            return True
         user_info = sess.get('user_info', {})
         with _data_lock:
             order_sessions[uid] = {
