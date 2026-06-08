@@ -403,7 +403,7 @@ def _dm_gql(query: str, variables: Optional[dict] = None, uid: Optional[int] = N
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
-    resp = requests.post(_dm_get_url(), json=payload, timeout=15)
+    resp = requests.post(_dm_get_url(), json=payload, timeout=8)
     resp.raise_for_status()
     return resp.json()
 
@@ -551,11 +551,48 @@ DATABASE_URL      = os.environ.get("DATABASE_URL", "")
 EM_POLL_INTERVAL  = 3
 EM_RESTORE_INTERVAL = 600
 
+# ── DB Connection Pool (shared by email + order modules) ──────────────────────
+import psycopg2.pool as _pg_pool
+
+_db_pool: Optional[_pg_pool.ThreadedConnectionPool] = None
+_db_pool_lock = threading.Lock()
+
+def _get_pool() -> _pg_pool.ThreadedConnectionPool:
+    global _db_pool
+    if _db_pool is None:
+        with _db_pool_lock:
+            if _db_pool is None:
+                if not DATABASE_URL:
+                    raise RuntimeError("DATABASE_URL is not set")
+                _db_pool = _pg_pool.ThreadedConnectionPool(2, 10, DATABASE_URL)
+    return _db_pool
+
+class _PoolConn:
+    """Context manager that borrows a connection from the pool and returns it."""
+    def __init__(self, dict_cursor: bool = False):
+        self._dict_cursor = dict_cursor
+        self._conn = None
+
+    def __enter__(self):
+        self._conn = _get_pool().getconn()
+        return self._conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            try:
+                self._conn.commit()
+            except Exception:
+                pass
+        else:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+        _get_pool().putconn(self._conn)
+        return False
 
 def _em_conn():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not set")
-    return psycopg2.connect(DATABASE_URL)
+    return _PoolConn()
 
 
 def em_init_db():
@@ -1125,32 +1162,19 @@ def is_admin(uid) -> bool:
 
 
 # ── Order DB helpers ───────────────────────────────────────────────────────────
-def _db_conn():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not set")
-    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-
-
 def _db_execute(query: str, params=None) -> int:
-    conn = _db_conn()
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(query, params or [])
-                return getattr(cur, 'rowcount', 0) or 0
-    finally:
-        conn.close()
+    with _PoolConn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params or [])
+            return getattr(cur, 'rowcount', 0) or 0
 
 
 def _db_query(query: str, params=None) -> list:
-    conn = _db_conn()
-    try:
-        with conn.cursor() as cur:
+    with _PoolConn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(query, params or [])
             rows = cur.fetchall()
             return [dict(r) for r in rows] if rows else []
-    finally:
-        conn.close()
 
 
 async def _aexec(query: str, params=None) -> int:
@@ -1165,9 +1189,8 @@ async def _aquery(query: str, params=None) -> list:
 
 def _init_db_sync():
     global PAYMENT_NAME, MAINTENANCE_MODE, EXTRA_ADMIN_IDS, CHANNEL_ID
-    conn = _db_conn()
     try:
-        with conn:
+        with _PoolConn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""CREATE TABLE IF NOT EXISTS order_accounts (
                     id SERIAL PRIMARY KEY,
@@ -1232,18 +1255,16 @@ def _init_db_sync():
                     first_sent_at TIMESTAMPTZ DEFAULT NOW(),
                     PRIMARY KEY (email, code)
                 )""")
-                cur.execute("SELECT COUNT(*) AS cnt FROM order_accounts")
-                if (cur.fetchone() or {}).get('cnt', 0) == 0:
+                cur.execute("SELECT COUNT(*) FROM order_accounts")
+                if (cur.fetchone() or (0,))[0] == 0:
                     cur.execute("INSERT INTO order_accounts (data) VALUES (%s)",
                                 [json.dumps({"accounts": [], "account_types": {}, "prices": {}})])
-                cur.execute("SELECT COUNT(*) AS cnt FROM order_sessions_store")
-                if (cur.fetchone() or {}).get('cnt', 0) == 0:
+                cur.execute("SELECT COUNT(*) FROM order_sessions_store")
+                if (cur.fetchone() or (0,))[0] == 0:
                     cur.execute("INSERT INTO order_sessions_store (data) VALUES (%s)", [json.dumps({})])
         logger.info("Order DB tables ready")
     except Exception as e:
         logger.error(f"DB init failed: {e}")
-    finally:
-        conn.close()
     try:
         rows = _db_query("SELECT key, value FROM order_settings")
         settings = {r['key']: r['value'] for r in rows}
@@ -1946,7 +1967,15 @@ async def _poll_donation(client, user_id, chat_id, txn_id, amount, qr_msg_id, se
 
 async def _generate_and_send_donate_qr(client, chat_id, user_id, amount, session):
     try:
+        loading_msg = await app.send_message(
+            chat_id,
+            f'⏳ <b>កំពុងបង្កើត QR Donate ${amount:.2f}...</b>',
+            parse_mode=ParseMode.HTML)
         img_bytes, txn_id, qr_string = await generate_payment_qr(amount)
+        try:
+            await loading_msg.delete()
+        except Exception:
+            pass
         if not img_bytes:
             await _osend(chat_id, f'❌ <b>មានបញ្ហាបង្កើត QR</b>\n\nព្យាយាមម្ដងទៀត')
             with _data_lock:
@@ -1971,6 +2000,10 @@ async def _generate_and_send_donate_qr(client, chat_id, user_id, amount, session
                                            amount, session.get('qr_message_id', 0), session))
     except Exception as e:
         logger.error(f"generate_and_send_donate_qr: {e}")
+        try:
+            await loading_msg.delete()
+        except Exception:
+            pass
         await _osend(chat_id, '❌ <b>មានបញ្ហាបង្កើត QR</b>\n\nព្យាយាមម្ដងទៀត')
         with _data_lock:
             order_sessions.pop(user_id, None)
