@@ -1869,7 +1869,17 @@ async def _start_add_account_flow(chat_id, user_id):
 
 # ── Donate UI ─────────────────────────────────────────────────────────────────
 DONATE_PRESETS = [1, 2, 5, 10, 20, 50]
+DONATE_STARS_PRESETS = [10, 25, 50, 100, 250, 500]
 MEDALS = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+
+def _donate_top_ikb():
+    return InlineKeyboardMarkup([
+        [_ikb('💳 KHPay (Bakong QR)', 'donate_khpay')],
+        [_ikb('⭐ Telegram Stars', 'donate_stars')],
+        [_ikb('🏆 Top Donation', 'don_top')],
+        [InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
+                              icon_custom_emoji_id='5282843764451195532')],
+    ])
 
 def _donate_ikb():
     rows = []
@@ -1878,7 +1888,16 @@ def _donate_ikb():
         rows.append(row)
     rows.append([_ikb('✏️ ចំនួនផ្ទាល់ខ្លួន', 'don_custom')])
     rows.append([_ikb('🏆 Top Donation', 'don_top')])
-    rows.append([InlineKeyboardButton('Back', callback_data='donate',
+    rows.append([InlineKeyboardButton('⬅️ Back', callback_data='donate',
+                                      icon_custom_emoji_id='5877629862306385808')])
+    return InlineKeyboardMarkup(rows)
+
+def _donate_stars_ikb():
+    rows = []
+    for i in range(0, len(DONATE_STARS_PRESETS), 3):
+        row = [_ikb(f'⭐ {amt}', f'dons:{amt}') for amt in DONATE_STARS_PRESETS[i:i+3]]
+        rows.append(row)
+    rows.append([InlineKeyboardButton('⬅️ Back', callback_data='donate',
                                       icon_custom_emoji_id='5877629862306385808')])
     return InlineKeyboardMarkup(rows)
 
@@ -1892,18 +1911,34 @@ async def send_donate_menu(chat_id, user_id, query=None):
     if total > 0:
         my_line = f'\n\n💝 <b>អ្នកបានបរិច្ចាគ:</b> <b>${total:.2f}</b> ({times} ដង)'
     text = (
-        '💝 <b>Donate តាម KHPay (Bakong QR)</b>\n\n'
+        '💝 <b>Donate ជូន RADY Bot</b>\n\n'
         'ការបរិច្ចាគរបស់អ្នកជួយឱ្យ Bot នេះបន្តដំណើរការ 🙏\n\n'
-        '💵 <b>ជ្រើសរើសចំនួន (USD):</b>' + my_line
+        '💳 <b>KHPay</b> — Bakong QR (USD)\n'
+        '⭐ <b>Telegram Stars</b> — native Stars' + my_line
     )
     if query:
         try:
             await query.message.edit_text(text, parse_mode=ParseMode.HTML,
-                                          reply_markup=_donate_ikb())
+                                          reply_markup=_donate_top_ikb())
             return
         except Exception:
             pass
-    await _osend(chat_id, text, kb=_donate_ikb())
+    await _osend(chat_id, text, kb=_donate_top_ikb())
+
+async def send_donate_stars_menu(chat_id, user_id, query=None):
+    text = (
+        '⭐ <b>Donate តាម Telegram Stars</b>\n\n'
+        'ជ្រើសរើសចំនួន Stars ដែលចង់ Donate:\n\n'
+        '<i>Stars ត្រូវបាន charge ពី Telegram wallet របស់អ្នក</i>'
+    )
+    if query:
+        try:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML,
+                                          reply_markup=_donate_stars_ikb())
+            return
+        except Exception:
+            pass
+    await _osend(chat_id, text, kb=_donate_stars_ikb())
 
 async def _format_top_donors() -> str:
     loop = asyncio.get_running_loop()
@@ -2733,7 +2768,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         top_text = await _format_top_donors()
         kb = InlineKeyboardMarkup([
             [_ikb('🔄 ផ្ទុកឡើងវិញ', 'don_top')],
-            [_ikb('💝 Donate', 'donate_khpay'),
+            [_ikb('💝 Donate', 'donate'),
              InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
                                   icon_custom_emoji_id='5282843764451195532')],
         ])
@@ -2746,6 +2781,35 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
     if d == 'donate_khpay':
         await query.answer()
         await send_donate_menu(cid, uid, query=query)
+        return True
+
+    if d == 'donate_stars':
+        await query.answer()
+        await send_donate_stars_menu(cid, uid, query=query)
+        return True
+
+    if d.startswith('dons:'):
+        try:
+            stars = int(d.split(':', 1)[1])
+        except (ValueError, IndexError):
+            await query.answer()
+            return True
+        if stars <= 0:
+            await query.answer('❌ ចំនួនមិនត្រឹមត្រូវ!', show_alert=True)
+            return True
+        await query.answer()
+        try:
+            await client.send_invoice(
+                chat_id=cid,
+                title='⭐ Donate ជូន RADY Bot',
+                description=f'Donate {stars} Telegram Stars ជួយ Bot នេះបន្តដំណើរការ 🙏',
+                payload=f'donate_stars_{stars}_{uid}',
+                currency='XTR',
+                prices=[LabeledPrice(label='Stars', amount=stars)],
+            )
+        except Exception as e:
+            logger.error(f'send_invoice stars: {e}')
+            await _osend(cid, '❌ មិនអាចបង្កើត Stars invoice បាន។ សូមព្យាយាមម្ដងទៀត។')
         return True
 
     if d.startswith('don:'):
@@ -3596,12 +3660,40 @@ async def pre_checkout_handler(client: Client, query: PreCheckoutQuery):
 @app.on_message(filters.successful_payment & filters.private)
 async def payment_success(client: Client, message: Message):
     stars = message.successful_payment.total_amount
+    uid = message.from_user.id
+    first = message.from_user.first_name or ''
+    last  = message.from_user.last_name or ''
+    uname = message.from_user.username or ''
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None, _save_donation_sync,
+            uid, first, last, uname, float(stars), f'stars_{stars}'
+        )
+        total, times = await loop.run_in_executor(None, _get_user_donation_total_sync, uid)
+    except Exception as e:
+        logger.error(f'payment_success db: {e}')
+        total, times = 0, 0
+    full = f'{first} {last}'.strip() or 'Anonymous'
     await message.reply(
         f'🎉 <b>អរគុណខ្លាំងណាស់!</b>\n\n'
-        f'អ្នកបាន Donate <b>{stars} ⭐ Star{"s" if stars > 1 else ""}</b> ជូន RADY Bot!\n\n'
-        f'ការគាំទ្ររបស់អ្នកជួយឱ្យ Bot នេះបន្តដំណើរការ 🙏',
+        f'💝 <b>{html.escape(full)}</b>\n'
+        f'បានបរិច្ចាគ <b>{stars} ⭐ Star{"s" if stars > 1 else ""}</b> ជូន RADY Bot! 🙏\n\n'
+        f'💵 <b>សរុបរបស់អ្នក:</b> ${total:.2f} ({times} ដង)',
         parse_mode=ParseMode.HTML,
     )
+    try:
+        if CHANNEL_ID:
+            await client.send_message(
+                CHANNEL_ID,
+                f'⭐ <b>Stars Donation</b>\n'
+                f'👤 {html.escape(full)}'
+                + (f' (@{html.escape(uname)})' if uname else '') +
+                f'\n⭐ <b>{stars} Stars</b>',
+                parse_mode=ParseMode.HTML,
+            )
+    except Exception as e:
+        logger.error(f'payment_success channel: {e}')
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 _run = app.loop.run_until_complete
