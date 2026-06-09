@@ -1972,7 +1972,6 @@ MEDALS = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8
 
 def _donate_top_ikb():
     return InlineKeyboardMarkup([
-        [_ikb('💳 KHPay (Bakong QR)', 'donate_khpay')],
         [_ikb('⭐ Telegram Stars', 'donate_stars')],
         [_ikb('🏆 Top Donation', 'don_top')],
         [InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
@@ -2011,8 +2010,7 @@ async def send_donate_menu(chat_id, user_id, query=None):
     text = (
         '💝 <b>Donate ជូន RADY Bot</b>\n\n'
         'ការបរិច្ចាគរបស់អ្នកជួយឱ្យ Bot នេះបន្តដំណើរការ 🙏\n\n'
-        '💳 <b>KHPay</b> — Bakong QR (USD)\n'
-        '⭐ <b>Telegram Stars</b> — native Stars' + my_line
+        '⭐ <b>Telegram Stars</b> — Donate ដោយ Stars' + my_line
     )
     if query:
         try:
