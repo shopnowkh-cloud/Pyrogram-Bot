@@ -22,9 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Smoke-test every critical import so a broken dep fails at build time, not runtime
 RUN python -c "\
-import pyrogram; \
-from pyrogram.types import InlineKeyboardButton; \
-b = InlineKeyboardButton('test', callback_data='t', icon_custom_emoji_id='123'); \
+import kurigram; \
 from PIL import Image; \
 import qrcode; \
 import cv2; \
@@ -33,6 +31,6 @@ import fitz; \
 import httpx; \
 print('All imports OK')"
 
-COPY bot.py dropmail.py email_module.py order_module.py ./
+COPY bot.py ./
 
 CMD ["python", "bot.py"]
