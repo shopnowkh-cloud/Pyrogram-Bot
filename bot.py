@@ -2043,17 +2043,30 @@ async def _poll_donation(client, user_id, chat_id, txn_id, amount, qr_msg_id, se
         with _polls_lock:
             _active_polls.discard(f'don_{user_id}')
 
-async def _generate_and_send_donate_qr(client, chat_id, user_id, amount, session):
+async def _generate_and_send_donate_qr(client, chat_id, user_id, amount, session, query=None):
+    loading_msg = None
     try:
-        loading_msg = await app.send_message(
-            chat_id,
-            f'⏳ <b>កំពុងបង្កើត QR Donate ${amount:.2f}...</b>',
-            parse_mode=ParseMode.HTML)
+        if query:
+            try:
+                await query.message.edit_text(
+                    f'⏳ <b>កំពុងបង្កើត QR Donate ${amount:.2f}...</b>',
+                    parse_mode=ParseMode.HTML)
+            except Exception:
+                loading_msg = await app.send_message(
+                    chat_id,
+                    f'⏳ <b>កំពុងបង្កើត QR Donate ${amount:.2f}...</b>',
+                    parse_mode=ParseMode.HTML)
+        else:
+            loading_msg = await app.send_message(
+                chat_id,
+                f'⏳ <b>កំពុងបង្កើត QR Donate ${amount:.2f}...</b>',
+                parse_mode=ParseMode.HTML)
         img_bytes, txn_id, qr_string = await generate_payment_qr(amount)
-        try:
-            await loading_msg.delete()
-        except Exception:
-            pass
+        if loading_msg:
+            try:
+                await loading_msg.delete()
+            except Exception:
+                pass
         if not img_bytes:
             await _osend(chat_id, f'❌ <b>មានបញ្ហាបង្កើត QR</b>\n\nព្យាយាមម្ដងទៀត')
             with _data_lock:
@@ -2078,10 +2091,11 @@ async def _generate_and_send_donate_qr(client, chat_id, user_id, amount, session
                                            amount, session.get('qr_message_id', 0), session))
     except Exception as e:
         logger.error(f"generate_and_send_donate_qr: {e}")
-        try:
-            await loading_msg.delete()
-        except Exception:
-            pass
+        if loading_msg:
+            try:
+                await loading_msg.delete()
+            except Exception:
+                pass
         await _osend(chat_id, '❌ <b>មានបញ្ហាបង្កើត QR</b>\n\nព្យាយាមម្ដងទៀត')
         with _data_lock:
             order_sessions.pop(user_id, None)
@@ -2089,11 +2103,18 @@ async def _generate_and_send_donate_qr(client, chat_id, user_id, amount, session
 
 
 # ── Account selection UI ───────────────────────────────────────────────────────
-async def send_account_selection(chat_id):
+async def send_account_selection(chat_id, query=None):
     with _data_lock:
         types = {t: accs for t, accs in accounts_data.get('account_types', {}).items() if len(accs) > 0}
     if not types:
-        await _osend(chat_id, "<i>😔 សូមអភ័យទោស! គ្មានទំនិញក្នុងស្តុក</i>")
+        text = "<i>😔 សូមអភ័យទោស! គ្មានទំនិញក្នុងស្តុក</i>"
+        if query:
+            try:
+                await query.message.edit_text(text, parse_mode=ParseMode.HTML)
+                return
+            except Exception:
+                pass
+        await _osend(chat_id, text)
         return
     rows = []
     for t, accs in types.items():
@@ -2103,8 +2124,15 @@ async def send_account_selection(chat_id):
         rows.append([_ikb(label, f"buy:{_type_cb_id(t)}")])
     rows.append([InlineKeyboardButton('🏠 ម៉ឺនុយមេ', callback_data='home',
                                       icon_custom_emoji_id='5282843764451195532')])
-    await _osend(chat_id, "<b>🛒 សូមជ្រើសរើសគូប៉ុងដើម្បីទិញ:</b>",
-                kb=InlineKeyboardMarkup(rows))
+    text = "<b>🛒 សូមជ្រើសរើសគូប៉ុងដើម្បីទិញ:</b>"
+    kb   = InlineKeyboardMarkup(rows)
+    if query:
+        try:
+            await query.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+            return
+        except Exception:
+            pass
+    await _osend(chat_id, text, kb=kb)
 
 
 # ── Payment generation ─────────────────────────────────────────────────────────
@@ -2597,7 +2625,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
 
     if d == 'o:home':
         await query.answer()
-        await send_account_selection(cid)
+        await send_account_selection(cid, query=query)
         return True
 
     if d.startswith('buy:'):
@@ -2634,29 +2662,30 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         qty_rows = [[_ikb(str(n), f'qty:{n}') for n in range(i, min(i+4, count+1))]
                     for i in range(1, count+1, 4)]
         qty_rows.append([_ikb('🚫 បោះបង់', 'cancel_buy')])
-        await _del_msg(cid, query.message.id)
-        await _osend(cid, f"<b>🛒 {html.escape(account_type)}</b> — ${price}/ខ\n\n<b>សូមជ្រើសរើសចំនួន:</b>",
-                    kb=InlineKeyboardMarkup(qty_rows))
+        try:
+            await query.message.edit_text(
+                f"<b>🛒 {html.escape(account_type)}</b> — ${price}/ខ\n\n<b>សូមជ្រើសរើសចំនួន:</b>",
+                reply_markup=InlineKeyboardMarkup(qty_rows), parse_mode=ParseMode.HTML)
+        except Exception:
+            await _osend(cid, f"<b>🛒 {html.escape(account_type)}</b> — ${price}/ខ\n\n<b>សូមជ្រើសរើសចំនួន:</b>",
+                        kb=InlineKeyboardMarkup(qty_rows))
         return True
 
     if d.startswith('qty:'):
         sess = order_sessions.get(uid)
         if not sess or sess.get('state') != 'waiting_for_quantity':
             await query.answer()
-            await _del_msg(cid, query.message.id)
-            await send_account_selection(cid)
+            await send_account_selection(cid, query=query)
             return True
         try:
             quantity = int(d.split(':', 1)[1])
         except (ValueError, IndexError):
             await query.answer()
-            await _del_msg(cid, query.message.id)
-            await send_account_selection(cid)
+            await send_account_selection(cid, query=query)
             return True
         if quantity > sess.get('available_count', 0):
             await query.answer()
-            await _del_msg(cid, query.message.id)
-            await send_account_selection(cid)
+            await send_account_selection(cid, query=query)
             return True
         total_price = quantity * sess.get('price', 0)
         account_type = sess.get('account_type', '')
@@ -2666,7 +2695,6 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
             sess['state']       = 'waiting_for_confirmation'
         _save_sessions_bg()
         await query.answer()
-        await _del_msg(cid, query.message.id)
         confirm_kb = InlineKeyboardMarkup([
             [_ikb('✅ យល់ព្រម', 'confirm_buy')],
             [_ikb('🚫 បោះបង់', 'cancel_buy')],
@@ -2676,9 +2704,13 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
                    f"🔢 ចំនួន: <b>{quantity}</b>\n"
                    f"💵 តម្លៃ: <b>${total_price:.2f}</b>\n\n"
                    f"<i>ចុច ✅ យល់ព្រម ដើម្បីបង្កើត QR Payment</i>")
-        msg_sent = await _osend(cid, summary, kb=confirm_kb)
-        if msg_sent:
-            sess['summary_message_id'] = msg_sent.id
+        try:
+            await query.message.edit_text(summary, reply_markup=confirm_kb, parse_mode=ParseMode.HTML)
+            sess['summary_message_id'] = query.message.id
+        except Exception:
+            msg_sent = await _osend(cid, summary, kb=confirm_kb)
+            if msg_sent:
+                sess['summary_message_id'] = msg_sent.id
         return True
 
     if d == 'confirm_buy':
@@ -2689,7 +2721,11 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         await query.answer("កំពុងបង្កើត QR...")
         with _data_lock:
             sess['state'] = 'payment_pending'
-        await _del_msg(cid, query.message.id)
+        try:
+            await query.message.edit_text("⏳ <b>កំពុងបង្កើត QR Payment...</b>",
+                                          parse_mode=ParseMode.HTML)
+        except Exception:
+            await _del_msg(cid, query.message.id)
         await _generate_and_send_qr(client, cid, uid, sess)
         return True
 
@@ -2698,8 +2734,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         with _data_lock:
             order_sessions.pop(uid, None)
         _save_sessions_bg()
-        await _del_msg(cid, query.message.id)
-        await send_account_selection(cid)
+        await send_account_selection(cid, query=query)
         return True
 
     if d == 'cancel_purchase':
@@ -2721,7 +2756,6 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
                 return True
         await query.answer()
         btn_mid = query.message.id
-        await _del_msg(cid, btn_mid)
         if sess:
             for k in ('photo_message_id', 'qr_message_id'):
                 mid = sess.get(k)
@@ -2732,7 +2766,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         _save_sessions_bg()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _delete_pending_payment_sync, uid)
-        await send_account_selection(cid)
+        await send_account_selection(cid, query=query)
         return True
 
     if d == 'check_payment':
@@ -2742,14 +2776,12 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
             sess = await loop.run_in_executor(None, _get_pending_payment_sync, uid)
         if not sess:
             await query.answer()
-            await _del_msg(cid, query.message.id)
-            await send_account_selection(cid)
+            await send_account_selection(cid, query=query)
             return True
         txn_id = sess.get('txn_id') or sess.get('md5_hash')
         if not txn_id:
             await query.answer()
-            await _del_msg(cid, query.message.id)
-            await send_account_selection(cid)
+            await send_account_selection(cid, query=query)
             return True
         is_paid, pd = await check_payment_status(txn_id)
         if is_paid:
@@ -2775,7 +2807,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         try:
             await query.message.edit_text(top_text, parse_mode=ParseMode.HTML, reply_markup=kb)
         except Exception:
-            await _osend(cid, top_text, kb=kb)
+            pass
         return True
 
     if d == 'donate_khpay':
@@ -2809,7 +2841,11 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
             )
         except Exception as e:
             logger.error(f'send_invoice stars: {e}')
-            await _osend(cid, '❌ មិនអាចបង្កើត Stars invoice បាន។ សូមព្យាយាមម្ដងទៀត។')
+            try:
+                await query.message.edit_text('❌ មិនអាចបង្កើត Stars invoice បាន។ សូមព្យាយាមម្ដងទៀត។',
+                                              parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
         return True
 
     if d.startswith('don:'):
@@ -2838,7 +2874,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
             }
         _save_sessions_bg()
         await _generate_and_send_donate_qr(client, cid, uid, amount,
-                                            order_sessions[uid])
+                                            order_sessions[uid], query=query)
         return True
 
     if d == 'don_custom':
@@ -2857,12 +2893,15 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
                 },
             }
         _save_sessions_bg()
-        await _osend(cid,
-            '✏️ <b>Donate ចំនួនផ្ទាល់ខ្លួន</b>\n\n'
-            'ផ្ញើចំនួន <b>USD</b> ដែលចង់ Donate:\n\n'
-            '<code>3.5</code> · <code>7</code> · <code>15</code> · <code>25</code>\n\n'
-            '<i>ចុច 🚫 បោះបង់ ដើម្បីបោះបង់</i>',
-            kb=InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]]))
+        text = ('✏️ <b>Donate ចំនួនផ្ទាល់ខ្លួន</b>\n\n'
+                'ផ្ញើចំនួន <b>USD</b> ដែលចង់ Donate:\n\n'
+                '<code>3.5</code> · <code>7</code> · <code>15</code> · <code>25</code>\n\n'
+                '<i>ចុច 🚫 បោះបង់ ដើម្បីបោះបង់</i>')
+        kb = InlineKeyboardMarkup([[_ikb('🚫 បោះបង់', 'don_cancel')]])
+        try:
+            await query.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+        except Exception:
+            await _osend(cid, text, kb=kb)
         return True
 
     if d == 'don_cancel':
@@ -2872,8 +2911,7 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         _save_sessions_bg()
         if sess and sess.get('qr_message_id'):
             await _del_msg(cid, sess['qr_message_id'])
-        await _del_msg(cid, query.message.id)
-        await send_donate_menu(cid, uid)
+        await send_donate_menu(cid, uid, query=query)
         return True
 
     if d.startswith('dts:') and is_admin(uid):
@@ -2924,26 +2962,28 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
         _admin_order_msg[uid] = query.message.id
 
         if action == 'close':
-            await _del_msg(cid, query.message.id)
             _admin_order_msg.pop(uid, None)
-            await _osend(cid, "✅ Admin Panel បានបិទ", kb=ReplyKeyboardRemove())
+            try:
+                await query.message.edit_text("✅ Admin Panel បានបិទ", parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+            await app.send_message(cid, ".", reply_markup=ReplyKeyboardRemove(),
+                                   parse_mode=ParseMode.HTML)
             return True
         if action == 'main':
-            await _del_msg(cid, query.message.id)
-            _admin_order_msg.pop(uid, None)
-            await _osend(cid,
+            _admin_order_msg[uid] = query.message.id
+            await _settings_edit(cid, uid,
                 "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើសប្រតិបត្តិការ៖",
-                kb=_settings_main_rkb())
+                _settings_main_ikb())
             return True
         if action == 'cancel_input':
             with _data_lock:
                 order_sessions.pop(uid, None)
             _save_sessions_bg()
-            await _del_msg(cid, query.message.id)
-            _admin_order_msg.pop(uid, None)
-            await _osend(cid,
+            _admin_order_msg[uid] = query.message.id
+            await _settings_edit(cid, uid,
                 "<b>⚙️ ការកំណត់ Admin</b>\n\nសូមជ្រើសរើសប្រតិបត្តិការ៖",
-                kb=_settings_main_rkb())
+                _settings_main_ikb())
             return True
         if action == 'pay':
             await _show_pay_panel(cid, uid); return True
@@ -3324,7 +3364,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         await edit_or_send(client, sess, cid, HOME_TEXT, main_kb()); return
 
     if d == 'order':
-        await send_account_selection(cid); return
+        await send_account_selection(cid, query=query); return
 
     if d == 'style':
         sess.state = S_STYLE
