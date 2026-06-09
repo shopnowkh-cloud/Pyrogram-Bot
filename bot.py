@@ -1187,6 +1187,7 @@ _data_lock   = threading.RLock()
 _polls_lock  = threading.Lock()
 _active_polls: set = set()
 _admin_order_msg: dict = {}
+_clone_clients: dict  = {}   # clone_id -> Client
 
 order_sessions: dict  = {}
 accounts_data: dict   = {"accounts": [], "account_types": {}, "prices": {}}
@@ -1296,6 +1297,13 @@ def _init_db_sync():
                     code TEXT NOT NULL,
                     first_sent_at TIMESTAMPTZ DEFAULT NOW(),
                     PRIMARY KEY (email, code)
+                )""")
+                cur.execute("""CREATE TABLE IF NOT EXISTS clone_bots (
+                    id SERIAL PRIMARY KEY,
+                    token TEXT UNIQUE NOT NULL,
+                    bot_name TEXT DEFAULT '',
+                    active BOOLEAN DEFAULT TRUE,
+                    added_at TIMESTAMPTZ DEFAULT NOW()
                 )""")
                 cur.execute("SELECT COUNT(*) FROM order_accounts")
                 if (cur.fetchone() or (0,))[0] == 0:
@@ -1586,6 +1594,72 @@ def _find_buyers_by_email_sync(email: str) -> list:
     return buyers
 
 
+# ── Clone Bot DB helpers ───────────────────────────────────────────────────────
+def _clone_list_sync():
+    try:
+        return _db_query("SELECT id, token, bot_name, active, added_at FROM clone_bots ORDER BY id")
+    except Exception as e:
+        logger.error(f"clone_list: {e}")
+        return []
+
+def _clone_add_sync(token: str, bot_name: str) -> int:
+    try:
+        rows = _db_query(
+            "INSERT INTO clone_bots (token, bot_name) VALUES (%s,%s) RETURNING id",
+            [token, bot_name])
+        return (rows[0]['id'] if rows else 0)
+    except Exception as e:
+        logger.error(f"clone_add: {e}")
+        return 0
+
+def _clone_del_sync(clone_id: int):
+    try:
+        _db_execute("DELETE FROM clone_bots WHERE id=%s", [clone_id])
+    except Exception as e:
+        logger.error(f"clone_del: {e}")
+
+
+# ── Clone Bot client manager ───────────────────────────────────────────────────
+async def _start_clone_client(clone_id: int, token: str) -> bool:
+    global _clone_clients
+    if clone_id in _clone_clients:
+        return True
+    try:
+        clone = Client(
+            name=f"clone_{clone_id}",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            bot_token=token,
+            in_memory=True,
+        )
+        for group, handlers in app.dispatcher.groups.items():
+            for handler in handlers:
+                clone.add_handler(handler, group)
+        await clone.start()
+        _clone_clients[clone_id] = clone
+        logger.info(f"Clone bot #{clone_id} started")
+        return True
+    except Exception as e:
+        logger.error(f"clone start #{clone_id}: {e}")
+        return False
+
+async def _stop_clone_client(clone_id: int):
+    client = _clone_clients.pop(clone_id, None)
+    if client:
+        try:
+            await client.stop()
+        except Exception:
+            pass
+        logger.info(f"Clone bot #{clone_id} stopped")
+
+async def _load_and_start_clones():
+    loop = asyncio.get_running_loop()
+    rows = await loop.run_in_executor(None, _clone_list_sync)
+    for row in rows:
+        if row.get('active'):
+            await _start_clone_client(int(row['id']), row['token'])
+
+
 # ── Order Keyboard helpers ─────────────────────────────────────────────────────
 def _ikb(text, cb):
     return InlineKeyboardButton(text, callback_data=cb)
@@ -1618,6 +1692,7 @@ def _settings_main_ikb():
         [_ikb('💳 Payment Name', 's:pay'),          _ikb('📢 Channel ID', 's:ch')],
         [_ikb('🔑 Bakong Token', 's:bak'),           _ikb('👑 Admins', 's:adm')],
         [_ikb('🛠 Maintenance', 's:mnt'),            _ikb('📢 Broadcast', 's:broadcast')],
+        [_ikb('🤖 Clone Bots', 's:clone')],
     ])
 
 def _settings_main_rkb():
@@ -1758,6 +1833,29 @@ async def _show_mnt_panel(chat_id, user_id):
     await _settings_edit(chat_id, user_id,
         f"🛠 <b>Maintenance Mode</b>\n\nស្ថានភាព: {status}",
         _settings_mnt_ikb())
+
+async def _show_clone_panel(chat_id, user_id, note: str = ''):
+    loop = asyncio.get_running_loop()
+    rows = await loop.run_in_executor(None, _clone_list_sync)
+    lines = ["🤖 <b>Clone Bots</b>\n"]
+    if note:
+        lines.append(f"{note}\n")
+    if not rows:
+        lines.append("📭 <i>មិនទាន់មាន Clone Bot ណាមួយ</i>")
+    else:
+        for r in rows:
+            cid_r = int(r['id'])
+            running = "🟢" if cid_r in _clone_clients else "🔴"
+            name = html.escape(r.get('bot_name') or f"#{cid_r}")
+            lines.append(f"{running} {name} <code>#{cid_r}</code>")
+    btn_rows = [[_ikb('➕ Add Clone Bot', 's:clone_add')]]
+    for r in rows:
+        cid_r = int(r['id'])
+        name = r.get('bot_name') or f"#{cid_r}"
+        btn_rows.append([_ikb(f"🗑 លុប {name}", f"s:clone_del:{cid_r}")])
+    btn_rows.append([_back_btn('s:main')])
+    await _settings_edit(chat_id, user_id, "\n".join(lines),
+                         InlineKeyboardMarkup(btn_rows))
 
 async def _show_del_type_panel(chat_id, user_id):
     with _data_lock:
@@ -2593,6 +2691,42 @@ async def _handle_admin_input(client, chat_id, user_id, key, text, message: Mess
             _broadcast_confirm_ikb())
         return True
 
+    if key == 'clone_token':
+        if not raw:
+            await _settings_edit(chat_id, user_id,
+                "🤖 <b>Clone Bot</b>\n\nផ្ញើ Bot Token ថ្មី (ពី @BotFather):",
+                _settings_cancel_ikb())
+            return True
+        token = raw.strip()
+        if ':' not in token or not token.split(':')[0].isdigit():
+            await _settings_edit(chat_id, user_id,
+                "❌ <b>Token មិនត្រឹមត្រូវ!</b>\n\n"
+                "Format: <code>123456789:AABBccdd...</code>\n\n"
+                "<i>ចុច 🚫 បោះបង់</i>", _settings_cancel_ikb())
+            return True
+        try:
+            test = Client("_clone_test", api_id=API_ID, api_hash=API_HASH,
+                          bot_token=token, in_memory=True)
+            await test.start()
+            me = await test.get_me()
+            bot_name = f"@{me.username}" if me.username else (me.first_name or token[:10])
+            await test.stop()
+        except Exception as e:
+            await _settings_edit(chat_id, user_id,
+                f"❌ <b>Token ខុស ឬ Bot ត្រូវបានបិទ:</b>\n<code>{html.escape(str(e))}</code>\n\n"
+                "<i>ចុច 🚫 បោះបង់</i>", _settings_cancel_ikb())
+            return True
+        loop = asyncio.get_running_loop()
+        clone_id = await loop.run_in_executor(None, _clone_add_sync, token, bot_name)
+        _finish()
+        if clone_id:
+            ok = await _start_clone_client(clone_id, token)
+            status = "✅ Started" if ok else "⚠️ Added (start failed — check logs)"
+        else:
+            status = "❌ Token នេះមានស្រាប់ ឬ DB error"
+        await _show_clone_panel(chat_id, user_id, note=f"{status}: <b>{html.escape(bot_name)}</b>")
+        return True
+
     return False
 
 
@@ -3069,6 +3203,25 @@ async def handle_order_callback(client, query: CallbackQuery) -> bool:
             _save_sessions_bg()
             await _settings_edit(cid, uid, "🚫 <b>បានបោះបង់ការផ្សាយ</b>",
                 InlineKeyboardMarkup([[_back_btn('s:main')]]))
+            return True
+        if action == 'clone':
+            await _show_clone_panel(cid, uid)
+            return True
+        if action == 'clone_add':
+            await _prompt_admin_input(cid, uid, 'clone_token',
+                "🤖 <b>Clone Bot ថ្មី</b>\n\n"
+                "ចូល @BotFather → /newbot → copy token\n\n"
+                "ផ្ញើ Bot Token:\n<code>123456789:AABBccdd...</code>", 'clone')
+            return True
+        if action.startswith('clone_del:'):
+            try:
+                clone_id = int(action.split(':', 1)[1])
+            except (IndexError, ValueError):
+                return True
+            await _stop_clone_client(clone_id)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _clone_del_sync, clone_id)
+            await _show_clone_panel(cid, uid, note="🗑 <b>Clone Bot បានលុបហើយ</b>")
             return True
         return True
 
@@ -3762,6 +3915,12 @@ try:
     _load_sessions_sync()
 except Exception as _e:
     logger.error(f'order DB init: {_e}')
+
+# Start clone bots
+try:
+    _run(_load_and_start_clones())
+except Exception as _e:
+    logger.error(f'clone bots load: {_e}')
 
 # Start email background tasks
 asyncio.get_event_loop().create_task(_em_poll_loop())
